@@ -14,6 +14,11 @@ class User(AbstractUser):
         choices=Roles.choices,
         default=Roles.EMPLOYEE,
     )
+    department = models.CharField(max_length=100, blank=True, default="")
+    avatar = models.URLField(blank=True, default="")
+    profile_image = models.ImageField(upload_to='profiles/', null=True, blank=True)
+    phone = models.CharField(max_length=20, blank=True, default="")
+    bio = models.TextField(blank=True, default="")
 
     def __str__(self):
         return f"{self.username} ({self.role})"
@@ -50,6 +55,13 @@ class Task(models.Model):
         null=True,
         blank=True,
         related_name="tasks",
+    )
+    assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_tasks",
     )
 
     def __str__(self):
@@ -95,33 +107,7 @@ class Message(models.Model):
         return f"Message from {self.sender} to {self.receiver} at {self.timestamp}"
 
 
-class Skill(models.Model):
-    """
-    Atomic skill used for AI career matching.
-    """
 
-    name = models.CharField(max_length=100, unique=True)
-
-    def __str__(self):
-        return self.name
-
-
-class Career(models.Model):
-    """
-    Represents a career path that WorkNest AI can recommend.
-    """
-
-    title = models.CharField(max_length=255)
-    description = models.TextField(blank=True)
-    required_skills = models.ManyToManyField(Skill, related_name="careers", blank=True)
-    avg_salary = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    growth_rate = models.FloatField(
-        help_text="Expected growth rate in %, e.g. 12.5", null=True, blank=True
-    )
-    industry = models.CharField(max_length=100, blank=True)
-
-    def __str__(self):
-        return self.title
 
 class RoomMessage(models.Model):
     sender = models.ForeignKey(

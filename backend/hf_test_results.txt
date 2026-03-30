@@ -1,0 +1,16 @@
+Trying https://router.huggingface.co/v1/chat/completions ...
+Status: 400
+Error: {"error":{"message":"The requested model 'HuggingFaceH4/zephyr-7b-beta' is not supported by any provider you have enabled.","type":"invalid_request_error","param":"model","code":"model_not_supported"}
+----------------------------------------
+Trying https://router.huggingface.co/hf-inference/v1/chat/completions ...
+Status: 404
+Error: Not Found
+----------------------------------------
+Trying https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta/v1/chat/completions ...
+Status: 410
+Error: {"error":"https://api-inference.huggingface.co is no longer supported. Please use https://router.huggingface.co instead."}
+----------------------------------------
+Trying https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta ...
+Status: 410
+Error: {"error":"https://api-inference.huggingface.co is no longer supported. Please use https://router.huggingface.co instead."}
+----------------------------------------

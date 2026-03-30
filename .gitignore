@@ -1,8 +1,28 @@
-node_modules
-dist
-.env
-__pycache__
+# Python
+venv/
+__pycache__/
 *.pyc
 *.log
-.vscode
+db.sqlite3
+
+# Environment
+.env
+
+# Node
+node_modules/
+dist/
+
+# Editor
+.vscode/
+
+# OS
 .DS_Store
+
+frontend/public/Kaggle*
+
+backend/venv/
+
+venv/
+.env
+__pycache__/
+*.pyc
