@@ -1,64 +1,37 @@
 """
-DirectMessageConsumer: 1-to-1 real-time chat over WebSockets.
+Chat Consumers — WorkNest real-time messaging over WebSockets.
 
-URL: ws/chat/<receiver_id>/?token=<access_jwt>
+DirectMessageConsumer
+  URL: ws/chat/<receiver_id>/?token=<jwt>
+  Protocol: {"action": "send", "content": "Hello"}
 
-The room name is derived from the sorted pair of user IDs so both
-participants join the same channel group regardless of who initiates.
-
-Protocol (JSON):
-  → client sends: {"action": "send", "content": "Hello"}
-  ← server sends: {"action": "message", "id": 1, "sender_id": 2,
-                   "sender_name": "alice", "content": "Hello",
-                   "timestamp": "2026-03-25T12:00:00Z"}
+GroupChatConsumer
+  URL: ws/group/<group_id>/?token=<jwt>
+  Protocol: {"action": "send", "content": "Hello"}
 """
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.contrib.auth import get_user_model
-from django.db.models import Q
 from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 
-from .models import Message
+from .models import Message, ChatGroup
 
 User = get_user_model()
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Shared helpers
 # ---------------------------------------------------------------------------
 
 @database_sync_to_async
 def get_user_from_token(token_str):
-    """Authenticate a JWT access token and return the User or None."""
     try:
         token = AccessToken(token_str)
-        user_id = token["user_id"]
-        return User.objects.get(pk=user_id)
+        return User.objects.get(pk=token["user_id"])
     except (TokenError, InvalidToken, User.DoesNotExist, KeyError):
         return None
-
-
-@database_sync_to_async
-def can_chat(sender, receiver):
-    """
-    Role-based messaging rules:
-      Admin   -> anyone
-      Manager -> Admin + any Employee
-      Employee-> their Manager (and Admin)
-    """
-    if sender.role == "Admin":
-        return True
-    if sender.role == "Manager":
-        return receiver.role in ("Admin", "Employee")
-    # Employee
-    return receiver.role in ("Admin", "Manager")
-
-
-@database_sync_to_async
-def save_message(sender, receiver, content):
-    return Message.objects.create(sender=sender, receiver=receiver, content=content)
 
 
 @database_sync_to_async
@@ -69,14 +42,44 @@ def get_receiver(receiver_id):
         return None
 
 
+@database_sync_to_async
+def can_chat(sender, receiver):
+    if sender.role == "Admin":
+        return True
+    if sender.role == "Manager":
+        return receiver.role in ("Admin", "Employee")
+    return receiver.role in ("Admin", "Manager")
+
+
+@database_sync_to_async
+def save_dm(sender, receiver, content):
+    return Message.objects.create(sender=sender, receiver=receiver, content=content)
+
+
+@database_sync_to_async
+def get_group_if_member(group_id, user):
+    """Return the ChatGroup if user is a member, else None."""
+    try:
+        group = ChatGroup.objects.get(pk=group_id)
+        if group.members.filter(id=user.id).exists():
+            return group
+        return None
+    except ChatGroup.DoesNotExist:
+        return None
+
+
+@database_sync_to_async
+def save_group_message(sender, group, content):
+    return Message.objects.create(sender=sender, group=group, content=content)
+
+
 # ---------------------------------------------------------------------------
-# Consumer
+# Direct Message Consumer
 # ---------------------------------------------------------------------------
 
 class DirectMessageConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
-        # 1. Authenticate via ?token= query string
         query_string = self.scope.get("query_string", b"").decode()
         token_str = None
         for part in query_string.split("&"):
@@ -89,20 +92,17 @@ class DirectMessageConsumer(AsyncWebsocketConsumer):
             await self.close(code=4001)
             return
 
-        # 2. Resolve receiver
         self.receiver_id = self.scope["url_route"]["kwargs"].get("receiver_id")
         self.receiver = await get_receiver(self.receiver_id)
         if not self.receiver:
             await self.close(code=4004)
             return
 
-        # 3. Role check
         allowed = await can_chat(self.user, self.receiver)
         if not allowed:
             await self.close(code=4003)
             return
 
-        # 4. Join private room group
         ids = sorted([self.user.id, self.receiver.id])
         self.room_name = f"dm_{ids[0]}_{ids[1]}"
         await self.channel_layer.group_add(self.room_name, self.channel_name)
@@ -118,15 +118,11 @@ class DirectMessageConsumer(AsyncWebsocketConsumer):
         except json.JSONDecodeError:
             return
 
-        action = data.get("action", "send")
-
-        if action == "send":
+        if data.get("action") == "send":
             content = (data.get("content") or "").strip()
             if not content:
                 return
-
-            msg = await save_message(self.user, self.receiver, content)
-
+            msg = await save_dm(self.user, self.receiver, content)
             await self.channel_layer.group_send(
                 self.room_name,
                 {
@@ -146,7 +142,69 @@ class DirectMessageConsumer(AsyncWebsocketConsumer):
 
 
 # ---------------------------------------------------------------------------
-# Legacy room consumer kept for backward compat (can be removed later)
+# Group Chat Consumer
+# ---------------------------------------------------------------------------
+
+class GroupChatConsumer(AsyncWebsocketConsumer):
+
+    async def connect(self):
+        query_string = self.scope.get("query_string", b"").decode()
+        token_str = None
+        for part in query_string.split("&"):
+            if part.startswith("token="):
+                token_str = part[len("token="):]
+                break
+
+        self.user = await get_user_from_token(token_str) if token_str else None
+        if not self.user:
+            await self.close(code=4001)
+            return
+
+        group_id = self.scope["url_route"]["kwargs"].get("group_id")
+        self.group = await get_group_if_member(group_id, self.user)
+        if not self.group:
+            await self.close(code=4003)
+            return
+
+        self.room_name = f"group_{self.group.id}"
+        await self.channel_layer.group_add(self.room_name, self.channel_name)
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        if hasattr(self, "room_name"):
+            await self.channel_layer.group_discard(self.room_name, self.channel_name)
+
+    async def receive(self, text_data):
+        try:
+            data = json.loads(text_data)
+        except json.JSONDecodeError:
+            return
+
+        if data.get("action") == "send":
+            content = (data.get("content") or "").strip()
+            if not content:
+                return
+            msg = await save_group_message(self.user, self.group, content)
+            await self.channel_layer.group_send(
+                self.room_name,
+                {
+                    "type": "chat_message",
+                    "action": "message",
+                    "id": msg.id,
+                    "group_id": self.group.id,
+                    "sender_id": self.user.id,
+                    "sender_name": self.user.username,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp.isoformat(),
+                }
+            )
+
+    async def chat_message(self, event):
+        await self.send(text_data=json.dumps(event))
+
+
+# ---------------------------------------------------------------------------
+# Legacy room consumer (kept for backward compat)
 # ---------------------------------------------------------------------------
 from .models import RoomMessage
 
@@ -162,12 +220,8 @@ class LiveChatConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, text_data):
         data = json.loads(text_data)
-        action = data.get("action")
-
-        if action == "chat_message":
-            sender_id = data.get("sender_id")
-            content = data.get("content")
-            msg = await self.create_room_message(sender_id, content)
+        if data.get("action") == "chat_message":
+            msg = await self.create_room_message(data.get("sender_id"), data.get("content"))
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
@@ -177,7 +231,7 @@ class LiveChatConsumer(AsyncWebsocketConsumer):
                     "sender_name": msg.sender.username,
                     "content": msg.content,
                     "timestamp": msg.timestamp.isoformat(),
-                    "action": "chat_message"
+                    "action": "chat_message",
                 }
             )
 

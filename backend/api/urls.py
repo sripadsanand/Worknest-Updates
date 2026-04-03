@@ -8,6 +8,8 @@ from .views import (
     TaskViewSet,
     AnnouncementViewSet,
     MessageViewSet,
+    ChatGroupViewSet,
+    GroupMessageListView,
     CurrentUserView,
     UserProfileView,
     ChatHistoryView,
@@ -16,28 +18,32 @@ from .views import (
     AISummarizeView,
 )
 
+
 def test_api_endpoint(request):
     return JsonResponse({"message": "API is working successfully!", "status": "ok"})
+
 
 router = routers.DefaultRouter()
 router.register(r'users', UserViewSet)
 router.register(r'tasks', TaskViewSet, basename='task')
-router.register(r'announcements', AnnouncementViewSet)
+router.register(r'announcements', AnnouncementViewSet, basename='announcement')
 router.register(r'messages', MessageViewSet, basename='message')
+router.register(r'groups', ChatGroupViewSet, basename='group')
 
-# ⚠️  IMPORTANT: All custom/non-router paths MUST come BEFORE include(router.urls)
-# The DRF DefaultRouter will absorb unmatched paths otherwise.
 urlpatterns = [
     # ── JWT Auth ───────────────────────────────────────────────────────
     path('auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
-    # ── Current user profile  (must be before the router to avoid <pk> swallowing 'me') ──
+    # ── Current user / profile ─────────────────────────────────────────
     path('users/me/', CurrentUserView.as_view(), name='users-me'),
     path('profile/', UserProfileView.as_view(), name='user-profile'),
 
     # ── 1-to-1 chat history (REST) ────────────────────────────────────
     path('chat/history/', ChatHistoryView.as_view(), name='chat-history'),
+
+    # ── Group messages ────────────────────────────────────────────────
+    path('groups/<int:group_id>/messages/', GroupMessageListView.as_view(), name='group-messages'),
 
     # ── AI Copilot ────────────────────────────────────────────────────
     path('ai/chat/', AIAssistantView.as_view(), name='api-ai-chat'),

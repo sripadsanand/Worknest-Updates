@@ -4,6 +4,9 @@ import api from "@/services/api";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type UserRole = "Admin" | "Manager" | "Employee";
+export type Seniority = "Senior" | "Junior";
+export type Department = "HR" | "IT" | "FINANCE";
+export type AudienceType = "All" | "Senior" | "Junior";
 
 export interface ApiUser {
   id: number;
@@ -12,7 +15,9 @@ export interface ApiUser {
   last_name: string;
   email: string;
   role: UserRole;
-  department: string;
+  seniority: Seniority;
+  section: string;
+  department: Department;
   avatar: string;
   profile_image: string | null;
   phone: string;
@@ -38,8 +43,29 @@ export interface Announcement {
   title: string;
   content: string;
   is_high_priority: boolean;
+  audience_type: AudienceType;
+  department: Department;
   created_at: string;
   author: ApiUser | null;
+}
+
+/** Group chat group */
+export interface ChatGroup {
+  id: number;
+  name: string;
+  created_by: ApiUser | null;
+  members: ApiUser[];
+  member_count: number;
+  created_at: string;
+}
+
+/** Group message */
+export interface GroupMessage {
+  id: number;
+  sender: ApiUser | null;
+  content: string;
+  timestamp: string;
+  is_read: boolean;
 }
 
 /** Represents a real user from the backend (used by UserManagement page) */
@@ -49,7 +75,9 @@ export interface MockEmployee {
   email: string;
   role: "admin" | "user";
   status: "active";
-  department: string;
+  department: Department;
+  seniority: Seniority;
+  section: string;
   joinDate: string;
   djangoRole?: string;
 }
@@ -63,6 +91,8 @@ interface UserState {
   username: string | null;
   email: string | null;
   id: number | null;
+  seniority: Seniority | null;
+  department: Department | null;
 }
 
 interface UserContextType {
@@ -73,7 +103,13 @@ interface UserContextType {
   // Announcements
   announcements: Announcement[];
   loadingAnnouncements: boolean;
-  addAnnouncement: (a: { title: string; content: string; is_high_priority: boolean }) => Promise<void>;
+  addAnnouncement: (a: {
+    title: string;
+    content: string;
+    is_high_priority: boolean;
+    audience_type: AudienceType;
+    department: Department;
+  }) => Promise<void>;
   deleteAnnouncement: (id: number) => Promise<void>;
   refreshAnnouncements: () => void;
 
@@ -87,12 +123,27 @@ interface UserContextType {
 
   // Employees
   employees: MockEmployee[];
-  addEmployee: (e: Omit<MockEmployee, "id">) => void;
-  updateEmployee: (id: number, updates: Partial<MockEmployee>) => void;
-  deleteEmployee: (id: number) => void;
+  addEmployee: (e: {
+    name: string;
+    email: string;
+    role: "admin" | "user";
+    djangoRole?: string;
+    seniority: Seniority;
+    section: string;
+    department: Department;
+    password: string;
+  }) => Promise<void>;
+  updateEmployee: (id: number, updates: Partial<MockEmployee> & { new_password?: string; confirm_password?: string }) => Promise<void>;
+  deleteEmployee: (id: number) => Promise<void>;
   loadingEmployees: boolean;
   employeeError: string | null;
   refreshEmployees: () => void;
+
+  // Groups
+  groups: ChatGroup[];
+  loadingGroups: boolean;
+  fetchGroups: () => Promise<void>;
+  createGroup: (name: string, memberIds: number[]) => Promise<ChatGroup>;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -109,7 +160,9 @@ function mapApiUserToEmployee(u: ApiUser): MockEmployee {
     role: mapDjangoRole(u.role),
     djangoRole: u.role,
     status: "active",
-    department: u.department || "",
+    department: u.department || "HR",
+    seniority: u.seniority || "Junior",
+    section: u.section || "",
     joinDate: "",
   };
 }
@@ -136,6 +189,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
       username: null,
       email: null,
       id: null,
+      seniority: null,
+      department: null,
     })
   );
 
@@ -157,6 +212,30 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // ── Groups ──────────────────────────────────────────────────────────────
+  const [groups, setGroups] = useState<ChatGroup[]>([]);
+  const [loadingGroups, setLoadingGroups] = useState(false);
+
+  const fetchGroups = useCallback(async () => {
+    if (!localStorage.getItem("accessToken")) return;
+    setLoadingGroups(true);
+    try {
+      const res = await api.get("/groups/");
+      const results = res.data.results ?? res.data;
+      setGroups(results);
+    } catch (err) {
+      console.error("Failed to load groups:", err);
+    } finally {
+      setLoadingGroups(false);
+    }
+  }, []);
+
+  const createGroup = async (name: string, memberIds: number[]): Promise<ChatGroup> => {
+    const res = await api.post("/groups/", { name, member_ids: memberIds });
+    fetchGroups();
+    return res.data as ChatGroup;
+  };
+
   // ── Tasks ─────────────────────────────────────────────────────────────────
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
@@ -165,7 +244,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     if (!localStorage.getItem("accessToken")) return;
     setLoadingTasks(true);
     try {
-      const url = filterParam && filterParam !== "all" 
+      const url = filterParam && filterParam !== "all"
         ? `/tasks/?filter=${filterParam}`
         : "/tasks/";
       const res = await api.get(url);
@@ -210,23 +289,23 @@ export function UserProvider({ children }: { children: ReactNode }) {
       fetchAnnouncements();
       fetchTasks();
       fetchEmployees();
+      fetchGroups();
     } else {
       setAnnouncements([]);
       setTasks([]);
       setEmployees([]);
+      setGroups([]);
     }
-  }, [user.isAuthenticated, fetchAnnouncements, fetchTasks, fetchEmployees]);
+  }, [user.isAuthenticated, fetchAnnouncements, fetchTasks, fetchEmployees, fetchGroups]);
 
   // ── Auth ─────────────────────────────────────────────────────────────────
   const login = async (usernameOrEmail: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      // Step 1: Get JWT tokens
       const tokenRes = await api.post("/auth/token/", { username: usernameOrEmail, password });
       const { access, refresh } = tokenRes.data;
       localStorage.setItem("accessToken", access);
       localStorage.setItem("refreshToken", refresh);
 
-      // Step 2: Fetch user profile
       const meRes = await api.get("/users/me/");
       const apiUser: ApiUser = meRes.data;
 
@@ -237,6 +316,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
         username: apiUser.username,
         email: apiUser.email,
         id: apiUser.id,
+        seniority: apiUser.seniority,
+        department: apiUser.department,
       });
       return { success: true };
     } catch (err: unknown) {
@@ -250,11 +331,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
-    setUser({ isAuthenticated: false, role: null, djangoRole: null, username: null, email: null, id: null });
+    setUser({ isAuthenticated: false, role: null, djangoRole: null, username: null, email: null, id: null, seniority: null, department: null });
   };
 
   // ── Announcement CRUD ─────────────────────────────────────────────────────
-  const addAnnouncement = async (a: { title: string; content: string; is_high_priority: boolean }) => {
+  const addAnnouncement = async (a: {
+    title: string;
+    content: string;
+    is_high_priority: boolean;
+    audience_type: AudienceType;
+    department: Department;
+  }) => {
     await api.post("/announcements/", a);
     fetchAnnouncements();
   };
@@ -277,7 +364,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
   };
 
   const updateTask = async (id: number, updates: Partial<{ status: string; priority: string; title: string; description: string; dueDate: string; assigned_to_id: number | null }>) => {
-    // Optimistic update for instant drag-drop feel
     setTasks(prev => prev.map(t => t.id === id ? { ...t, ...updates } as Task : t));
     try {
       const { dueDate, ...rest } = updates;
@@ -285,36 +371,60 @@ export function UserProvider({ children }: { children: ReactNode }) {
       if (dueDate !== undefined) payload.due_date = dueDate || null;
       await api.patch(`/tasks/${id}/`, payload);
     } catch {
-      // Roll back on error
       fetchTasks();
     }
   };
 
   // ── Employee CRUD ─────────────────────────────────────────────────────────
-  const addEmployee = async (e: Omit<MockEmployee, "id">) => {
+  const addEmployee = async (e: {
+    name: string;
+    email: string;
+    role: "admin" | "user";
+    djangoRole?: string;
+    seniority: Seniority;
+    section: string;
+    department: Department;
+    password: string;
+  }) => {
     try {
       await api.post("/users/", {
         username: e.name,
         email: e.email,
         role: e.djangoRole || (e.role === "admin" ? "Admin" : "Employee"),
-        password: "changeme123",
+        seniority: e.seniority,
+        section: e.section,
+        department: e.department,
+        password: e.password,
       });
       fetchEmployees();
-    } catch {
-      setEmployeeError("Failed to create user.");
+    } catch (err: unknown) {
+      const data = (err as { response?: { data?: Record<string, string[]> } })?.response?.data;
+      const messages = data ? Object.values(data).flat().join(" ") : "Failed to create user.";
+      setEmployeeError(messages);
+      throw err;
     }
   };
 
-  const updateEmployee = async (id: number, updates: Partial<MockEmployee>) => {
+  const updateEmployee = async (id: number, updates: Partial<MockEmployee> & { new_password?: string; confirm_password?: string }) => {
     try {
       const payload: Record<string, string> = {};
       if (updates.name) payload.username = updates.name;
       if (updates.email) payload.email = updates.email;
       if (updates.role) payload.role = updates.role === "admin" ? "Admin" : "Employee";
+      if (updates.seniority) payload.seniority = updates.seniority;
+      if (updates.section !== undefined) payload.section = updates.section;
+      if (updates.department) payload.department = updates.department;
+      if (updates.new_password) {
+        payload.new_password = updates.new_password;
+        payload.confirm_password = updates.confirm_password || "";
+      }
       await api.patch(`/users/${id}/`, payload);
       fetchEmployees();
-    } catch {
-      setEmployeeError("Failed to update user.");
+    } catch (err: unknown) {
+      const data = (err as { response?: { data?: Record<string, string[]> } })?.response?.data;
+      const messages = data ? Object.values(data).flat().join(" ") : "Failed to update user.";
+      setEmployeeError(messages);
+      throw err;
     }
   };
 
@@ -334,6 +444,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       tasks, loadingTasks, addTask, deleteTask, updateTask, refreshTasks: fetchTasks,
       employees, addEmployee, updateEmployee, deleteEmployee,
       loadingEmployees, employeeError, refreshEmployees: fetchEmployees,
+      groups, loadingGroups, fetchGroups, createGroup,
     }}>
       {children}
     </UserContext.Provider>

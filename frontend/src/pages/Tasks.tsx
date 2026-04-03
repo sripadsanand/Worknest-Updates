@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useUser, Task } from "@/context/UserContext";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Trash2, GripVertical, X, Calendar, Loader2, Filter } from "lucide-react";
+import { Plus, Trash2, GripVertical, X, Calendar, Loader2, Filter, AlertCircle } from "lucide-react";
 
 const COLUMNS: { key: Task["status"]; title: string; dotColor: string }[] = [
   { key: "todo", title: "To Do", dotColor: "bg-muted-foreground" },
@@ -21,6 +21,11 @@ const PRIORITY_LABELS: Record<string, string> = {
   low: "Low",
 };
 
+/** Return today's date as YYYY-MM-DD */
+function todayStr(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
 export default function Tasks() {
   const { tasks, employees, loadingTasks, addTask, deleteTask, updateTask, refreshTasks, user } = useUser();
   const canCreate = user.djangoRole === "Admin" || user.djangoRole === "Manager";
@@ -29,16 +34,16 @@ export default function Tasks() {
   const [showModal, setShowModal] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newPriority, setNewPriority] = useState<"high" | "medium" | "low">("medium");
-  const [newDueDate, setNewDueDate] = useState("");
+  const [newDueDate, setNewDueDate] = useState(todayStr());
   const [newDescription, setNewDescription] = useState("");
   const [newAssignedTo, setNewAssignedTo] = useState<number | "">("");
   const [saving, setSaving] = useState(false);
-  
+  const [dateError, setDateError] = useState<string | null>(null);
+
   // Filters
   const [ownerFilter, setOwnerFilter] = useState<"all" | "my" | "assigned_by_me">(
     user.djangoRole === "Employee" ? "my" : "all"
   );
-  
   const [dateFilter, setDateFilter] = useState<"all" | "today" | "tomorrow" | "overdue">("all");
 
   useEffect(() => {
@@ -51,22 +56,51 @@ export default function Tasks() {
     return false;
   });
 
+  const openModal = () => {
+    setNewTitle("");
+    setNewPriority("medium");
+    setNewDueDate(todayStr());  // always reset to today
+    setNewDescription("");
+    setNewAssignedTo("");
+    setDateError(null);
+    setShowModal(true);
+  };
+
+  const handleDateChange = (val: string) => {
+    setDateError(null);
+    if (val && val < todayStr()) {
+      setDateError("Due date cannot be in the past. Please select today or a future date.");
+    }
+    setNewDueDate(val);
+  };
+
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
+
+    // Frontend guard: reject past dates
+    if (newDueDate && newDueDate < todayStr()) {
+      setDateError("Due date cannot be in the past. Please select today or a future date.");
+      return;
+    }
+
     setSaving(true);
     try {
       await addTask({
         title: newTitle.trim(),
         description: newDescription.trim(),
         priority: newPriority,
-        dueDate: newDueDate || new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0],
+        dueDate: newDueDate || todayStr(),
         assigned_to_id: newAssignedTo ? Number(newAssignedTo) : undefined,
       });
-      setNewTitle(""); setNewPriority("medium"); setNewDueDate(""); setNewDescription(""); setNewAssignedTo("");
       setShowModal(false);
-    } catch {
-      alert("Failed to create task based on permission rules.");
+    } catch (err: unknown) {
+      const data = (err as { response?: { data?: Record<string, string[]> } })?.response?.data;
+      if (data?.due_date || data?.dueDate) {
+        setDateError((data.due_date ?? data.dueDate ?? []).join(" "));
+      } else {
+        alert("Failed to create task. You may not have permission.");
+      }
     } finally {
       setSaving(false);
     }
@@ -85,7 +119,6 @@ export default function Tasks() {
 
   const handleAssign = async (taskId: number, newAssigneeId: number | "") => {
     try {
-      // Direct API call implemented in updateTask using assigned_to_id
       await updateTask(taskId, { assigned_to_id: newAssigneeId === "" ? null : newAssigneeId });
     } catch {
       alert("Failed to re-assign task.");
@@ -94,7 +127,13 @@ export default function Tasks() {
 
   const formatDueDate = (d: string | null) => {
     if (!d) return "No date";
-    return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const isOverdue = d < todayStr();
+    return (
+      <span className={isOverdue ? "text-destructive font-semibold" : ""}>
+        {new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+        {isOverdue ? " ⚠" : ""}
+      </span>
+    );
   };
 
   if (loadingTasks) {
@@ -108,33 +147,34 @@ export default function Tasks() {
 
   return (
     <div className="space-y-6">
+      {/* Header + Filters */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="font-display text-2xl font-bold">Task Board</h2>
           <div className="flex flex-wrap items-center gap-2 mt-2">
-            <button 
-              onClick={() => setOwnerFilter("all")} 
+            <button
+              onClick={() => setOwnerFilter("all")}
               className={`text-xs px-3 py-1 rounded-full transition-colors ${ownerFilter === "all" ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:bg-secondary/80"}`}
               style={{ display: user.djangoRole === "Employee" ? "none" : "block" }}
             >
               All Tasks
             </button>
-            <button 
-              onClick={() => setOwnerFilter("my")} 
+            <button
+              onClick={() => setOwnerFilter("my")}
               className={`text-xs px-3 py-1 rounded-full transition-colors ${ownerFilter === "my" ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:bg-secondary/80"}`}
             >
               My Tasks
             </button>
-            <button 
-              onClick={() => setOwnerFilter("assigned_by_me")} 
+            <button
+              onClick={() => setOwnerFilter("assigned_by_me")}
               className={`text-xs px-3 py-1 rounded-full transition-colors ${ownerFilter === "assigned_by_me" ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:bg-secondary/80"}`}
               style={{ display: user.djangoRole === "Employee" ? "none" : "block" }}
             >
               Assigned by Me
             </button>
-            
+
             <div className="h-4 w-[1px] bg-border mx-1 hidden sm:block"></div>
-            
+
             <div className="flex items-center gap-1.5 ml-1">
               <Filter className="h-3.5 w-3.5 text-muted-foreground" />
               {(["all", "today", "tomorrow", "overdue"] as const).map(df => (
@@ -142,10 +182,12 @@ export default function Tasks() {
                   key={df}
                   onClick={() => setDateFilter(df)}
                   className={`text-[11px] px-2.5 py-1 rounded-md transition-all font-semibold border ${
-                    dateFilter === df 
-                      ? "bg-foreground text-background border-foreground shadow-sm" 
+                    dateFilter === df
+                      ? df === "overdue"
+                        ? "bg-destructive text-destructive-foreground border-destructive"
+                        : "bg-foreground text-background border-foreground shadow-sm"
                       : "bg-background text-muted-foreground border-border hover:bg-secondary"
-                  } ${df === "overdue" && dateFilter === df ? "bg-destructive text-destructive-foreground border-destructive" : ""}`}
+                  }`}
                 >
                   {df === "all" ? "Any Date" : df.charAt(0).toUpperCase() + df.slice(1)}
                 </button>
@@ -154,22 +196,22 @@ export default function Tasks() {
           </div>
         </div>
         {canCreate && (
-          <button onClick={() => setShowModal(true)} className="btn-primary">
+          <button onClick={openModal} className="btn-primary">
             <Plus className="h-4 w-4" /> New Task
           </button>
         )}
       </div>
 
+      {/* Kanban columns */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {COLUMNS.map(col => {
           const colTasks = tasks.filter(t => {
             if (t.status !== col.key) return false;
-            // role filters
             if (ownerFilter === "my" && t.assigned_to?.id !== user.id) return false;
             if (ownerFilter === "assigned_by_me" && t.assigned_by?.id !== user.id) return false;
             return true;
           });
-          
+
           return (
             <div
               key={col.key}
@@ -212,13 +254,12 @@ export default function Tasks() {
                     <div className="flex flex-col gap-2 mt-3 ml-1">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          {/* Assignment UI - allows inline reassignment for privileged users */}
                           {canCreate ? (
-                            <select 
-                              value={task.assigned_to?.id || ""} 
+                            <select
+                              value={task.assigned_to?.id || ""}
                               onChange={(e) => handleAssign(task.id, e.target.value ? Number(e.target.value) : "")}
                               className="text-[10px] bg-secondary border border-border rounded px-1.5 py-0.5 w-24 text-muted-foreground hover:bg-secondary/80 outline-none"
-                              onClick={(e) => e.stopPropagation()} // Prevent drag start when clicking dropdown
+                              onClick={(e) => e.stopPropagation()}
                             >
                               <option value="">Unassigned</option>
                               {assignableEmployees.map(e => (
@@ -237,7 +278,6 @@ export default function Tasks() {
                               <span className="text-[10px] text-muted-foreground">{task.assigned_to ? task.assigned_to.username : "Unassigned"}</span>
                             </div>
                           )}
-                          
                           {task.assigned_by && (
                             <span title={`Created by: ${task.assigned_by.username}`} className="text-[10px] text-muted-foreground/50 hidden sm:inline-block ml-2">
                               creator: {task.assigned_by.username}
@@ -245,12 +285,12 @@ export default function Tasks() {
                           )}
                         </div>
                       </div>
-                      
+
                       <div className="flex items-center justify-between mt-1">
                         <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                          <Calendar className="h-3 w-3" /> {formatDueDate(task.dueDate)}
+                          <Calendar className="h-3 w-3" />
+                          {formatDueDate(task.dueDate)}
                         </span>
-                        
                         {canCreate && (
                           <button
                             onClick={() => deleteTask(task.id)}
@@ -294,30 +334,27 @@ export default function Tasks() {
               </div>
               <form onSubmit={handleAddTask} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium mb-1.5">Task Title</label>
+                  <label className="block text-xs font-medium mb-1.5">Task Title <span className="text-destructive">*</span></label>
                   <input value={newTitle} onChange={e => setNewTitle(e.target.value)} className="input-field" placeholder="What needs to be done?" autoFocus required />
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1.5">Description (optional)</label>
                   <textarea value={newDescription} onChange={e => setNewDescription(e.target.value)} rows={2} className="input-field resize-none" placeholder="Add more details..." />
                 </div>
-                
-                {/* Assignee selector explicitly shown for admins/managers */}
+
                 {canCreate && (
                   <div>
                     <label className="block text-xs font-medium mb-1.5">Assign To</label>
-                    <div className="relative">
-                      <select 
-                        value={newAssignedTo} 
-                        onChange={e => setNewAssignedTo(e.target.value === "" ? "" : Number(e.target.value))} 
-                        className="input-field appearance-none w-full bg-card"
-                      >
-                        <option value="">Unassigned</option>
-                        {assignableEmployees.map(e => (
-                          <option key={e.id} value={e.id}>{e.name} ({e.djangoRole})</option>
-                        ))}
-                      </select>
-                    </div>
+                    <select
+                      value={newAssignedTo}
+                      onChange={e => setNewAssignedTo(e.target.value === "" ? "" : Number(e.target.value))}
+                      className="input-field appearance-none w-full bg-card"
+                    >
+                      <option value="">Unassigned</option>
+                      {assignableEmployees.map(e => (
+                        <option key={e.id} value={e.id}>{e.name} ({e.djangoRole})</option>
+                      ))}
+                    </select>
                   </div>
                 )}
 
@@ -338,13 +375,28 @@ export default function Tasks() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1.5">Due Date</label>
-                    <input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} className="input-field max-w-full" />
+                    <label className="block text-xs font-medium mb-1.5">
+                      Due Date <span className="text-destructive">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={newDueDate}
+                      min={todayStr()}
+                      onChange={e => handleDateChange(e.target.value)}
+                      className={`input-field max-w-full ${dateError ? "border-destructive ring-1 ring-destructive/30" : ""}`}
+                    />
+                    {dateError && (
+                      <p className="mt-1.5 flex items-start gap-1 text-xs text-destructive">
+                        <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                        {dateError}
+                      </p>
+                    )}
                   </div>
                 </div>
+
                 <div className="flex justify-end gap-2 pt-2">
                   <button type="button" onClick={() => setShowModal(false)} className="btn-ghost text-xs px-4 py-2">Cancel</button>
-                  <button type="submit" disabled={saving} className="btn-primary text-xs px-5 py-2">
+                  <button type="submit" disabled={saving || !!dateError} className="btn-primary text-xs px-5 py-2 flex items-center gap-1.5 disabled:opacity-50">
                     {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                     {saving ? "Creating…" : "Create Task"}
                   </button>
