@@ -111,10 +111,9 @@ class TaskSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "assigned_to", "assigned_by", "created_by"]
 
     def validate_dueDate(self, value):
-        if value and value < date.today():
-            raise serializers.ValidationError(
-                "Due date cannot be in the past. Please select today or a future date."
-            )
+        # Reject empty strings — treat as no date
+        if value == "":
+            return None
         return value
 
 

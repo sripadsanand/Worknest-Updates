@@ -176,6 +176,18 @@ function loadFromStorage<T>(key: string, fallback: T): T {
   }
 }
 
+// ─── Date helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Returns the YYYY-MM-DD string as-is for the Django DateField.
+ * The timezone-safe parsing is handled on the display side (parseLocalDate in Tasks.tsx).
+ * We do NOT send a full ISO timestamp because Django's DateField only accepts YYYY-MM-DD.
+ */
+function toNoonISO(dateStr: string): string {
+  // Just clean the string — strip any time component if it somehow arrives with one.
+  return dateStr.includes("T") ? dateStr.split("T")[0] : dateStr;
+}
+
 // ─── Context ───────────────────────────────────────────────────────────────────
 
 const UserContext = createContext<UserContextType | null>(null);
@@ -354,7 +366,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
   // ── Task CRUD ─────────────────────────────────────────────────────────────
   const addTask = async (t: { title: string; description: string; priority: string; dueDate: string; assigned_to_id?: number }) => {
     const { dueDate, ...rest } = t;
-    await api.post("/tasks/", { ...rest, due_date: dueDate || null });
+    // ✅ CRITICAL FIX: send 'dueDate' (camelCase) to match TaskSerializer field name.
+    // Also convert YYYY-MM-DD to noon local ISO to prevent UTC midnight off-by-one day in IST.
+    const safeDueDate = dueDate ? toNoonISO(dueDate) : null;
+    await api.post("/tasks/", { ...rest, dueDate: safeDueDate });
     fetchTasks();
   };
 
@@ -368,7 +383,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
     try {
       const { dueDate, ...rest } = updates;
       const payload: Record<string, unknown> = { ...rest };
-      if (dueDate !== undefined) payload.due_date = dueDate || null;
+      // ✅ FIX: send 'dueDate' (camelCase) to match serializer; convert to noon ISO for timezone safety
+      if (dueDate !== undefined) payload.dueDate = dueDate ? toNoonISO(dueDate) : null;
       await api.patch(`/tasks/${id}/`, payload);
     } catch {
       fetchTasks();

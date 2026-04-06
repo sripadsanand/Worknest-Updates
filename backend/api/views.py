@@ -95,15 +95,21 @@ class TaskViewSet(viewsets.ModelViewSet):
         if filter_param:
             from django.utils import timezone
             from datetime import timedelta
-            today = timezone.now().date()
+            # Use localdate() for timezone-aware comparison (respects IST/server TZ)
+            today = timezone.localdate()
             if filter_param == "today":
                 qs = qs.filter(due_date=today)
             elif filter_param == "tomorrow":
                 qs = qs.filter(due_date=today + timedelta(days=1))
             elif filter_param == "overdue":
-                qs = qs.filter(due_date__lt=today).exclude(status="done")
+                qs = qs.filter(due_date__lt=today, due_date__isnull=False).exclude(status="done")
+            elif filter_param == "this_week":
+                week_end = today + timedelta(days=6 - today.weekday())  # Sunday
+                qs = qs.filter(due_date__gte=today, due_date__lte=week_end)
+            elif filter_param == "next_7_days":
+                qs = qs.filter(due_date__gte=today, due_date__lte=today + timedelta(days=7))
 
-        return qs.order_by("-created_at")
+        return qs.order_by("due_date", "-created_at")
 
     def get_permissions(self):
         if self.action in ("create", "destroy"):

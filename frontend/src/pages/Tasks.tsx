@@ -21,9 +21,23 @@ const PRIORITY_LABELS: Record<string, string> = {
   low: "Low",
 };
 
-/** Return today's date as YYYY-MM-DD */
+/** Parse YYYY-MM-DD without UTC-midnight timezone shift */
+function parseLocalDate(str: string): Date {
+  const [y, m, d] = str.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+/** Return today's date as YYYY-MM-DD in local time */
 function todayStr(): string {
-  return new Date().toISOString().split("T")[0];
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+/** Return tomorrow's date as YYYY-MM-DD in local time */
+function tomorrowStr(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export default function Tasks() {
@@ -44,7 +58,7 @@ export default function Tasks() {
   const [ownerFilter, setOwnerFilter] = useState<"all" | "my" | "assigned_by_me">(
     user.djangoRole === "Employee" ? "my" : "all"
   );
-  const [dateFilter, setDateFilter] = useState<"all" | "today" | "tomorrow" | "overdue">("all");
+  const [dateFilter, setDateFilter] = useState<"all" | "today" | "tomorrow" | "overdue" | "this_week" | "next_7_days">("all");
 
   useEffect(() => {
     refreshTasks(dateFilter);
@@ -90,7 +104,7 @@ export default function Tasks() {
         title: newTitle.trim(),
         description: newDescription.trim(),
         priority: newPriority,
-        dueDate: newDueDate || todayStr(),
+        dueDate: newDueDate,   // pass raw YYYY-MM-DD; UserContext converts it to noon-ISO
         assigned_to_id: newAssignedTo ? Number(newAssignedTo) : undefined,
       });
       setShowModal(false);
@@ -125,13 +139,47 @@ export default function Tasks() {
     }
   };
 
+  /**
+   * Timezone-safe, colour-coded due date badge.
+   * Parses YYYY-MM-DD locally (avoids UTC midnight off-by-one in IST).
+   */
   const formatDueDate = (d: string | null) => {
-    if (!d) return "No date";
-    const isOverdue = d < todayStr();
+    if (!d) return <span className="text-muted-foreground/60 italic">No due date</span>;
+
+    // Strip time component if ISO string was returned (e.g. "2026-04-10T12:00:00Z")
+    const datePart = d.includes("T") ? d.split("T")[0] : d;
+    const today = todayStr();
+    const tomorrow = tomorrowStr();
+
+    if (datePart < today) {
+      // Overdue
+      const label = parseLocalDate(datePart).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      return (
+        <span className="inline-flex items-center gap-1 text-red-500 font-semibold">
+          {label} <span className="text-[9px] bg-red-500/10 border border-red-500/20 rounded px-1 py-0.5 uppercase tracking-wide">Overdue</span>
+        </span>
+      );
+    }
+    if (datePart === today) {
+      const label = parseLocalDate(datePart).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      return (
+        <span className="inline-flex items-center gap-1 text-amber-500 font-semibold">
+          {label} <span className="text-[9px] bg-amber-500/10 border border-amber-500/20 rounded px-1 py-0.5 uppercase tracking-wide">Today</span>
+        </span>
+      );
+    }
+    if (datePart === tomorrow) {
+      const label = parseLocalDate(datePart).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      return (
+        <span className="inline-flex items-center gap-1 text-emerald-500 font-medium">
+          {label} <span className="text-[9px] bg-emerald-500/10 border border-emerald-500/20 rounded px-1 py-0.5 uppercase tracking-wide">Tomorrow</span>
+        </span>
+      );
+    }
+    // Future date — normal
     return (
-      <span className={isOverdue ? "text-destructive font-semibold" : ""}>
-        {new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-        {isOverdue ? " ⚠" : ""}
+      <span className="text-muted-foreground">
+        {parseLocalDate(datePart).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
       </span>
     );
   };
@@ -175,21 +223,26 @@ export default function Tasks() {
 
             <div className="h-4 w-[1px] bg-border mx-1 hidden sm:block"></div>
 
-            <div className="flex items-center gap-1.5 ml-1">
+            <div className="flex items-center gap-1.5 ml-1 flex-wrap">
               <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-              {(["all", "today", "tomorrow", "overdue"] as const).map(df => (
+              {(["all", "today", "tomorrow", "overdue", "this_week", "next_7_days"] as const).map(df => (
                 <button
                   key={df}
                   onClick={() => setDateFilter(df)}
                   className={`text-[11px] px-2.5 py-1 rounded-md transition-all font-semibold border ${
                     dateFilter === df
                       ? df === "overdue"
-                        ? "bg-destructive text-destructive-foreground border-destructive"
+                        ? "bg-red-500 text-white border-red-500 shadow-sm"
+                        : df === "today"
+                        ? "bg-amber-500 text-white border-amber-500 shadow-sm"
                         : "bg-foreground text-background border-foreground shadow-sm"
                       : "bg-background text-muted-foreground border-border hover:bg-secondary"
                   }`}
                 >
-                  {df === "all" ? "Any Date" : df.charAt(0).toUpperCase() + df.slice(1)}
+                  {df === "all" ? "Any Date"
+                    : df === "this_week" ? "This Week"
+                    : df === "next_7_days" ? "Next 7 Days"
+                    : df.charAt(0).toUpperCase() + df.slice(1)}
                 </button>
               ))}
             </div>
