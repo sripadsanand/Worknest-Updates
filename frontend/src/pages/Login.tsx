@@ -31,13 +31,7 @@ export default function Login() {
     setLoading(false);
   };
 
-  const fillDemo = (type: "admin" | "user") => {
-    // Django authenticates by username, not email.
-    // Use the usernames created in Django admin.
-    setEmail(type === "admin" ? "admin" : "user");
-    setPassword("password");
-    setError(null);
-  };
+
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -94,23 +88,7 @@ export default function Login() {
           <h1 className="font-display text-2xl font-extrabold tracking-tight mb-1">Welcome back</h1>
           <p className="text-sm text-muted-foreground mb-8">Sign in to your WorkNest account</p>
 
-          {/* Quick Demo */}
-          <div className="flex gap-2 mb-6">
-            <button
-              type="button"
-              onClick={() => fillDemo("admin")}
-              className="flex-1 py-2.5 rounded-xl border border-border text-xs font-semibold text-foreground hover:bg-secondary transition-all"
-            >
-              🛡️ Demo Admin
-            </button>
-            <button
-              type="button"
-              onClick={() => fillDemo("user")}
-              className="flex-1 py-2.5 rounded-xl border border-border text-xs font-semibold text-foreground hover:bg-secondary transition-all"
-            >
-              👤 Demo User
-            </button>
-          </div>
+
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Camera, Mail, Phone, User as UserIcon, Shield, FileText, Loader2, Check } from "lucide-react";
+import { Camera, Mail, Phone, User as UserIcon, Shield, FileText, Loader2, Check, Briefcase, Award, Hash } from "lucide-react";
 import { useUser, ApiUser } from "@/context/UserContext";
 import api from "@/services/api";
 
@@ -25,7 +25,16 @@ export default function Profile() {
     const fetchProfile = async () => {
       try {
         const res = await api.get("/profile/");
-        setProfile(res.data);
+        console.log("FULL USER RESPONSE:", res.data);
+
+        // Map department robustly handling string, null, or potential nested objects
+        let dept = res.data.department || res.data.departmentName || res.data.dept || "";
+        if (dept && typeof dept === "object") {
+          dept = dept.name || dept.id || "";
+        }
+
+        const mappedData = { ...res.data, department: dept };
+        setProfile(mappedData);
         setFormData({
           first_name: res.data.first_name || "",
           last_name: res.data.last_name || "",
@@ -99,6 +108,8 @@ export default function Profile() {
       </div>
     );
   }
+
+  console.log("USER DATA:", user);
 
   return (
     <div className="max-w-2xl mx-auto space-y-8 animate-fade-in pb-12">
@@ -205,6 +216,47 @@ export default function Profile() {
                 className="input-field"
                 placeholder="+1 (555) 000-0000"
               />
+            </div>
+
+            {/* Additional Details */}
+            <div className="grid sm:grid-cols-3 gap-5">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium flex items-center gap-2">
+                  <Award className="h-4 w-4 text-muted-foreground" /> Seniority
+                </label>
+                <input
+                  type="text"
+                  value={profile.seniority || "Junior"}
+                  disabled
+                  className="input-field opacity-60 cursor-not-allowed bg-secondary/50"
+                />
+              </div>
+              <div className="space-y-1.5">
+                  <label className="text-sm font-medium flex items-center gap-2">
+                    <Briefcase className="h-4 w-4 text-muted-foreground" /> Department
+                  </label>
+                  <input
+                    type="text"
+                    value={
+                      profile.department && typeof profile.department === "string" && profile.department.trim() !== ""
+                        ? profile.department
+                        : "Not Assigned"
+                    }
+                    disabled
+                    className="input-field opacity-60 cursor-not-allowed bg-secondary/50"
+                  />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium flex items-center gap-2">
+                  <Hash className="h-4 w-4 text-muted-foreground" /> User ID
+                </label>
+                <input
+                  type="text"
+                  value={profile.id ? `WK-${profile.id.toString().padStart(4, '0')}` : "Not Assigned"}
+                  disabled
+                  className="input-field opacity-60 cursor-not-allowed bg-secondary/50"
+                />
+              </div>
             </div>
 
             <div className="space-y-1.5">
