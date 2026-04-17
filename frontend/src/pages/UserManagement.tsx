@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Check } from "lucide-react";
 import api from "@/services/api";
 import { useUser, MockEmployee, Seniority, Department } from "@/context/UserContext";
 import { motion, AnimatePresence } from "framer-motion";
@@ -147,14 +148,11 @@ export default function UserManagement() {
     if (!emailRe.test(form.email)) return setFormError("Please enter a valid email address.");
 
     if (!editingId) {
-      // Create — password required
-      if (!form.password) return setFormError("Password is required.");
-      if (form.password.length < 8) return setFormError("Password must be at least 8 characters.");
+      if (!isPasswordValid) return setFormError("Password does not meet security requirements.");
     } else {
-      // Edit — password optional but if provided must match
       if (form.new_password || form.confirm_password) {
-        if (form.new_password.length < 8) return setFormError("New password must be at least 8 characters.");
-        if (form.new_password !== form.confirm_password) return setFormError("Passwords do not match.");
+        if (!isPasswordValid) return setFormError("Password does not meet security requirements.");
+        if (!passwordMatch) return setFormError("Passwords do not match.");
       }
     }
 
@@ -192,6 +190,20 @@ export default function UserManagement() {
       setSaving(false);
     }
   };
+
+  const pw = editingId ? form.new_password : form.password;
+  const isEditingPassword = !!editingId && form.new_password.length > 0;
+  const isCreatingUser = !editingId;
+  const needsValidation = isCreatingUser || isEditingPassword;
+  
+  const hasLength = pw.length >= 8 && pw.length <= 64;
+  const hasUpper = /[A-Z]/.test(pw);
+  const hasLower = /[a-z]/.test(pw);
+  const hasNumber = /\d/.test(pw);
+  const hasSpecial = /[@$!%*?&]/.test(pw);
+  const isPasswordValid = hasLength && hasUpper && hasLower && hasNumber && hasSpecial;
+  const passwordMatch = !editingId || form.new_password === form.confirm_password;
+  const isValidToSave = !needsValidation || (isPasswordValid && passwordMatch);
 
   const roleLabel = (u: MockEmployee) => u.djangoRole || (u.role === "admin" ? "Admin" : "Employee");
 
@@ -429,11 +441,25 @@ export default function UserManagement() {
                       </div>
                     </div>
                   )}
+                  {editingId && isEditingPassword && !passwordMatch && (
+                    <div className="text-xs text-destructive mt-2 font-medium flex items-center gap-1.5"><X className="h-3.5 w-3.5"/> Passwords do not match</div>
+                  )}
+                  
+                  {needsValidation && (
+                    <div className="mt-4 space-y-2 text-xs px-1 bg-secondary/30 p-3 rounded-lg border border-border">
+                       <p className="font-semibold text-muted-foreground mb-1">Security Requirements:</p>
+                       <div className={`flex items-center gap-2 ${hasLength ? 'text-emerald-500' : 'text-muted-foreground'}`}>{hasLength ? <Check className="h-3.5 w-3.5"/> : <X className="h-3.5 w-3.5 opacity-50"/>} 8 to 64 characters</div>
+                       <div className={`flex items-center gap-2 ${hasUpper ? 'text-emerald-500' : 'text-muted-foreground'}`}>{hasUpper ? <Check className="h-3.5 w-3.5"/> : <X className="h-3.5 w-3.5 opacity-50"/>} One uppercase letter</div>
+                       <div className={`flex items-center gap-2 ${hasLower ? 'text-emerald-500' : 'text-muted-foreground'}`}>{hasLower ? <Check className="h-3.5 w-3.5"/> : <X className="h-3.5 w-3.5 opacity-50"/>} One lowercase letter</div>
+                       <div className={`flex items-center gap-2 ${hasNumber ? 'text-emerald-500' : 'text-muted-foreground'}`}>{hasNumber ? <Check className="h-3.5 w-3.5"/> : <X className="h-3.5 w-3.5 opacity-50"/>} One number</div>
+                       <div className={`flex items-center gap-2 ${hasSpecial ? 'text-emerald-500' : 'text-muted-foreground'}`}>{hasSpecial ? <Check className="h-3.5 w-3.5"/> : <X className="h-3.5 w-3.5 opacity-50"/>} One special char (!@#$%^&*)</div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2">
                   <button type="button" onClick={() => setShowModal(false)} className="btn-ghost text-xs px-4 py-2">Cancel</button>
-                  <button type="submit" disabled={saving} className="btn-primary text-xs px-5 py-2 flex items-center gap-1.5">
+                  <button type="submit" disabled={saving || !isValidToSave} className="btn-primary text-xs px-5 py-2 flex items-center gap-1.5 focus:ring-2 focus:ring-primary/20">
                     {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                     {saving ? "Saving…" : editingId ? "Save Changes" : "Add User"}
                   </button>

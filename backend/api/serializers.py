@@ -1,4 +1,5 @@
 from datetime import date
+import re
 
 from rest_framework import serializers
 
@@ -54,14 +55,25 @@ class UserSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         new_pw = attrs.get("new_password", "")
         confirm_pw = attrs.get("confirm_password", "")
+        password = attrs.get("password", "")
+
+        def validate_strong_password(pw, field_name):
+            if not pw:
+                return
+            pw = pw.strip()
+            # Must be 8-64 characters, at least 1 lowercase, 1 uppercase, 1 digit, 1 special char
+            pattern = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,64}$")
+            if not pattern.match(pw):
+                raise serializers.ValidationError({field_name: "Password does not meet security requirements"})
+
         if new_pw or confirm_pw:
-            if len(new_pw) < 8:
-                raise serializers.ValidationError({"new_password": "Password must be at least 8 characters."})
+            validate_strong_password(new_pw, "new_password")
             if new_pw != confirm_pw:
                 raise serializers.ValidationError({"confirm_password": "Passwords do not match."})
-        password = attrs.get("password", "")
-        if self.instance is None and password and len(password) < 8:
-            raise serializers.ValidationError({"password": "Password must be at least 8 characters."})
+
+        if self.instance is None and password:
+            validate_strong_password(password, "password")
+
         return attrs
 
     def create(self, validated_data):
