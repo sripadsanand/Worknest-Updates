@@ -33,6 +33,17 @@ class IsAdminOrManager(permissions.BasePermission):
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role in ("Admin", "Manager")
 
+class IsAdminManagerOrSenior(permissions.BasePermission):
+    def has_permission(self, request, view):
+        user = request.user
+        if not user.is_authenticated:
+            return False
+        if user.role in ("Admin", "Manager"):
+            return True
+        if user.role == "Employee" and user.seniority == "Senior":
+            return True
+        return False
+
 
 class IsAdminOrManagerOrReadOnly(permissions.BasePermission):
     """Allow Admin/Manager to write; any authenticated user to read."""
@@ -176,6 +187,14 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer = UserMinimalSerializer(subordinates, many=True)
         return Response({"team": serializer.data})
 
+    @action(detail=False, methods=['get'])
+    def juniors(self, request):
+        """Retrieve all Junior members in the user's department."""
+        user = request.user
+        juniors = User.objects.filter(department=user.department, seniority="Junior").order_by('first_name', 'username')
+        serializer = UserMinimalSerializer(juniors, many=True)
+        return Response({"juniors": serializer.data})
+
 
 
 # -----------------------------------------------------------------
@@ -225,19 +244,30 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in ("create", "destroy"):
-            return [IsAdminOrManager()]
+            return [IsAdminManagerOrSenior()]
         return [IsAuthenticated()]
 
     def _validate_assignment(self, assigned_to_user):
         user = self.request.user
-        if user.role == "Employee":
-            raise PermissionDenied("Employees cannot assign tasks.")
+        is_senior = user.role == "Employee" and user.seniority == "Senior"
+
+        if user.role == "Employee" and not is_senior:
+            raise PermissionDenied("Junior employees cannot assign tasks.")
+
         if not assigned_to_user:
             return
+
         if user.role == "Admin":
             return
+
         if user.role == "Manager" and assigned_to_user.role != "Employee":
             raise PermissionDenied("Managers can only assign tasks to Employees.")
+
+        if is_senior:
+            if assigned_to_user.seniority != "Junior":
+                raise PermissionDenied("Seniors can only assign tasks to Junior members.")
+            if assigned_to_user.department != user.department:
+                raise PermissionDenied("Seniors can only assign tasks to Junior members in their department.")
 
     def perform_create(self, serializer):
         due_date = serializer.validated_data.get("due_date")
@@ -249,20 +279,30 @@ class TaskViewSet(viewsets.ModelViewSet):
             self._validate_assignment(assigned_to_user)
         
         dept = serializer.validated_data.get('assigned_to_department')
-        task = serializer.save(assigned_by=self.request.user)
+        user = self.request.user
+        if user.role == "Employee" and user.seniority == "Senior" and dept:
+            raise PermissionDenied("Seniors cannot broadcast tasks to an entire department.")
+
+        task = serializer.save(assigned_by=user)
         if dept:
             task.assigned_users.set(User.objects.filter(department__iexact=dept))
 
     def perform_update(self, serializer):
         user = self.request.user
-        if user.role == "Employee":
+        is_senior = user.role == "Employee" and user.seniority == "Senior"
+
+        if user.role == "Employee" and not is_senior:
             allowed_fields = {'status'}
             if not set(serializer.validated_data.keys()).issubset(allowed_fields):
-                raise PermissionDenied("Employees can only update task status.")
+                raise PermissionDenied("Junior employees can only update task status.")
+        
         if 'assigned_to' in serializer.validated_data:
             self._validate_assignment(serializer.validated_data.get('assigned_to'))
         
         dept = serializer.validated_data.get('assigned_to_department')
+        if is_senior and 'assigned_to_department' in serializer.validated_data and dept:
+            raise PermissionDenied("Seniors cannot broadcast tasks to an entire department.")
+
         task = serializer.save()
         if 'assigned_to_department' in serializer.validated_data:
             if dept:

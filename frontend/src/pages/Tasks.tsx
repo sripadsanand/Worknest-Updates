@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { useUser, Task } from "@/context/UserContext";
+import { useUser, Task, ApiUser } from "@/context/UserContext";
+import api from "@/services/api";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Trash2, GripVertical, X, Calendar, Loader2, Filter, AlertCircle, Building2, Users } from "lucide-react";
 
@@ -42,7 +43,18 @@ function tomorrowStr(): string {
 
 export default function Tasks() {
   const { tasks, employees, loadingTasks, addTask, deleteTask, updateTask, refreshTasks, user } = useUser();
-  const canCreate = user.djangoRole === "Admin" || user.djangoRole === "Manager";
+  const isSenior = user.djangoRole === "Employee" && user.seniority === "Senior";
+  const canCreate = user.djangoRole === "Admin" || user.djangoRole === "Manager" || isSenior;
+
+  const [juniors, setJuniors] = useState<ApiUser[]>([]);
+
+  useEffect(() => {
+    if (isSenior) {
+      api.get("/users/juniors/")
+        .then(res => setJuniors(res.data.juniors || []))
+        .catch(err => console.error("Failed to load juniors", err));
+    }
+  }, [isSenior]);
 
   const [dragItem, setDragItem] = useState<number | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -67,7 +79,7 @@ export default function Tasks() {
 
   const assignableEmployees = employees.filter(e => {
     if (user.djangoRole === "Admin") return true;
-    if (user.djangoRole === "Manager") return e.djangoRole === "Employee";
+    if (user.djangoRole === "Manager") return e.djangoRole === "Employee" && e.department === user.department;
     return false;
   });
 
@@ -324,18 +336,31 @@ export default function Tasks() {
                               onChange={(e) => handleAssign(task.id, e.target.value)}
                               className="text-[10px] bg-secondary border border-border rounded px-1.5 py-0.5 max-w-[140px] text-muted-foreground hover:bg-secondary/80 outline-none"
                               onClick={(e) => e.stopPropagation()}
+                              disabled={isSenior && juniors.length === 0}
                             >
                               <option value="">Unassigned</option>
-                              <optgroup label="--- Departments ---">
-                                <option value="dept:HR">HR Department</option>
-                                <option value="dept:IT">IT Department</option>
-                                <option value="dept:FINANCE">Finance Department</option>
-                              </optgroup>
-                              <optgroup label="--- Users ---">
-                                {assignableEmployees.map(e => (
-                                  <option key={e.id} value={`user:${e.id}`}>{e.name} ({e.djangoRole})</option>
-                                ))}
-                              </optgroup>
+                              {!isSenior && (
+                                <optgroup label="--- Departments ---">
+                                  <option value="dept:HR">HR Department</option>
+                                  <option value="dept:IT">IT Department</option>
+                                  <option value="dept:FINANCE">Finance Department</option>
+                                </optgroup>
+                              )}
+                              {isSenior && juniors.length === 0 ? (
+                                <option value="" disabled>No junior members available in your department</option>
+                              ) : (
+                                <optgroup label="--- Users ---">
+                                  {isSenior ? (
+                                    juniors.map(j => (
+                                      <option key={j.id} value={`user:${j.id}`}>{j.username}</option>
+                                    ))
+                                  ) : (
+                                    assignableEmployees.map(e => (
+                                      <option key={e.id} value={`user:${e.id}`}>{e.name} ({e.djangoRole})</option>
+                                    ))
+                                  )}
+                                </optgroup>
+                              )}
                             </select>
                           ) : null}
 
@@ -437,21 +462,40 @@ export default function Tasks() {
                          setOverrideUser("");
                       }}
                       className="input-field appearance-none w-full bg-card"
+                      disabled={isSenior && juniors.length === 0}
                     >
                       <option value="">Unassigned</option>
-                      <optgroup label="--- Departments ---">
-                         <option value="dept:HR">HR Department</option>
-                         <option value="dept:IT">IT Department</option>
-                         <option value="dept:FINANCE">Finance Department</option>
-                      </optgroup>
-                      <optgroup label="--- Users ---">
-                         {assignableEmployees.map(e => (
-                           <option key={e.id} value={`user:${e.id}`}>👤 {e.name} ({e.djangoRole})</option>
-                         ))}
-                      </optgroup>
+                      {!isSenior && (
+                        <optgroup label="--- Departments ---">
+                           <option value="dept:HR">HR Department</option>
+                           <option value="dept:IT">IT Department</option>
+                           <option value="dept:FINANCE">Finance Department</option>
+                        </optgroup>
+                      )}
+                      {isSenior && juniors.length === 0 ? (
+                        <option value="" disabled>No junior members available in your department</option>
+                      ) : (
+                        <optgroup label="--- Users ---">
+                           {isSenior ? (
+                             juniors.map(j => (
+                               <option key={j.id} value={`user:${j.id}`}>👤 {j.username} (Junior)</option>
+                             ))
+                           ) : (
+                             assignableEmployees.map(e => (
+                               <option key={e.id} value={`user:${e.id}`}>👤 {e.name} ({e.djangoRole})</option>
+                             ))
+                           )}
+                        </optgroup>
+                      )}
                     </select>
 
-                    {newAssignment.startsWith("dept:") && (
+                    {isSenior && (
+                      <p className="mt-1.5 text-[11px] text-muted-foreground font-semibold">
+                        You can assign tasks only to junior team members
+                      </p>
+                    )}
+
+                    {!isSenior && newAssignment.startsWith("dept:") && (
                         <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="mt-3 pl-3 border-l-2 border-primary/30">
                             <label className="block text-[11px] font-semibold mb-1 text-muted-foreground flex items-center gap-1">
                                 <AlertCircle className="h-3 w-3" /> Specific User Override (PRO Bonus)

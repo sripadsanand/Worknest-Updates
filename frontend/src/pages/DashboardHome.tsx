@@ -3,27 +3,16 @@ import { useUser } from "@/context/UserContext";
 import { motion } from "framer-motion";
 import {
   CheckSquare, Megaphone, MessageCircle, Users,
-  ArrowRight, Sparkles, TrendingUp, Clock, AlertTriangle, Link as LinkIcon
+  ArrowRight, TrendingUp, Clock, AlertTriangle
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import api from "@/services/api";
 
 export default function DashboardHome() {
   const navigate = useNavigate();
   const { tasks, announcements, user, employees } = useUser();
-  const [apiMessage, setApiMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Test API connection to Django backend
-    api.get('test/')
-      .then(res => setApiMessage(res.data.message))
-      .catch((err: any) => setApiMessage("API Connection Failed: " + (err.response?.status || err.message)));
-  }, []);
 
   const pendingTasks = tasks.filter(t => t.status !== "done").length;
   const completedTasks = tasks.filter(t => t.status === "done").length;
   const highPriAnnouncements = announcements.filter(a => a.is_high_priority).length;
-  const activeEmployees = employees.filter(e => e.status === "active").length;
 
   const userStats = [
     { label: "Pending Tasks", value: pendingTasks, icon: CheckSquare, color: "text-primary", bg: "bg-primary/10", to: "/dashboard/tasks" },
@@ -34,7 +23,6 @@ export default function DashboardHome() {
 
   const adminStats = [
     { label: "Total Users", value: employees.length, icon: Users, color: "text-primary", bg: "bg-primary/10", to: "/dashboard/users" },
-    { label: "Active Users", value: activeEmployees, icon: TrendingUp, color: "text-success", bg: "bg-success/10", to: "/dashboard/users" },
     { label: "Active Tasks", value: pendingTasks, icon: CheckSquare, color: "text-warning", bg: "bg-warning/10", to: "/dashboard/tasks" },
     { label: "High Priority", value: highPriAnnouncements, icon: AlertTriangle, color: "text-destructive", bg: "bg-destructive/10", to: "/dashboard/announcements" },
   ];
@@ -45,26 +33,8 @@ export default function DashboardHome() {
 
   return (
     <div className="space-y-6">
-      {/* API Connection Banner */}
-      {apiMessage && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className={`flex items-center gap-3 p-4 rounded-xl shadow-sm border ${
-            apiMessage.includes("Failed")
-              ? "bg-destructive/10 border-destructive overflow-hidden text-destructive"
-              : "bg-success/10 border-success/30 text-success"
-          }`}
-        >
-          <LinkIcon className={`h-5 w-5 ${apiMessage.includes("Failed") ? "text-destructive" : "text-success"}`} />
-          <p className="text-sm font-semibold tracking-wide">
-            Backend Status: <span className="font-normal opacity-90">{apiMessage}</span>
-          </p>
-        </motion.div>
-      )}
-
       {/* Bento Grid Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:flex gap-4">
         {stats.map((s, i) => (
           <motion.button
             key={s.label}
@@ -72,7 +42,7 @@ export default function DashboardHome() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.08 }}
-            className="bento-item group"
+            className="bento-item group flex-1"
           >
             <div className={`h-10 w-10 rounded-xl ${s.bg} flex items-center justify-center mb-3`}>
               <s.icon className={`h-5 w-5 ${s.color}`} />
