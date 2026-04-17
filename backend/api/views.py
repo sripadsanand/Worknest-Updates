@@ -59,6 +59,30 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
 
 
 # -----------------------------------------------------------------
+# Utility: Dependent Dropdowns
+# -----------------------------------------------------------------
+class DepartmentSectionsView(APIView):
+    """
+    Returns roles/sections associated with a specific department.
+    Used for dynamic dependent dropdowns in the UI.
+    """
+    permission_classes = [IsAuthenticated]
+
+    DEPARTMENT_SECTIONS = {
+        "IT": ["Developer", "Tester", "Security Engineer", "DevOps Engineer", "System Administrator"],
+        "HR": ["HR Executive", "Recruiter", "HR Manager", "Payroll Specialist"],
+        "FINANCE": ["Accountant", "Financial Analyst", "Auditor", "Tax Consultant"],
+    }
+
+    def get(self, request, department):
+        from .models import User
+        # Department choices: "HR", "IT", "FINANCE"
+        dept_key = str(department).upper()
+        sections = self.DEPARTMENT_SECTIONS.get(dept_key, [])
+        return Response({"sections": sections})
+
+
+# -----------------------------------------------------------------
 # Users
 # -----------------------------------------------------------------
 class UserViewSet(viewsets.ModelViewSet):

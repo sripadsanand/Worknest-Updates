@@ -16,6 +16,7 @@ from .views import (
     AIAssistantView,
     AISuggestReplyView,
     AISummarizeView,
+    DepartmentSectionsView,
 )
 
 
@@ -49,6 +50,9 @@ urlpatterns = [
     path('ai/chat/', AIAssistantView.as_view(), name='api-ai-chat'),
     path('ai/suggest-reply/', AISuggestReplyView.as_view(), name='api-ai-suggest'),
     path('ai/summarize/', AISummarizeView.as_view(), name='api-ai-summarize'),
+
+    # ── Utility ───────────────────────────────────────────────────────
+    path('departments/<str:department>/sections/', DepartmentSectionsView.as_view(), name='department-sections'),
 
     # ── Health check ──────────────────────────────────────────────────
     path('test/', test_api_endpoint, name='api-test'),

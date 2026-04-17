@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import api from "@/services/api";
 import { useUser, MockEmployee, Seniority, Department } from "@/context/UserContext";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -56,6 +57,11 @@ export default function UserManagement() {
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  
+  // Dynamic Sections State
+  const [sectionsCache, setSectionsCache] = useState<Record<string, string[]>>({});
+  const [availableSections, setAvailableSections] = useState<string[]>([]);
+  const [loadingSections, setLoadingSections] = useState(false);
 
   const filtered = employees.filter(u =>
     u.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -89,6 +95,46 @@ export default function UserManagement() {
 
   const set = (key: keyof FormState, value: string) =>
     setForm(p => ({ ...p, [key]: value }));
+
+  const handleDepartmentChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newDept = e.target.value as Department;
+    setForm(p => ({ ...p, department: newDept, section: "" }));
+  };
+
+  // Fetch sections dynamically on department change
+  useEffect(() => {
+    if (!form.department) {
+      setAvailableSections([]);
+      return;
+    }
+    
+    const deptKey = form.department.toUpperCase();
+    if (sectionsCache[deptKey]) {
+      setAvailableSections(sectionsCache[deptKey]);
+      return;
+    }
+
+    let isMounted = true;
+    const fetchSections = async () => {
+      setLoadingSections(true);
+      try {
+        const res = await api.get(`/departments/${form.department}/sections/`);
+        if (isMounted) {
+          const fetchedSections = res.data.sections || [];
+          setSectionsCache(prev => ({ ...prev, [deptKey]: fetchedSections }));
+          setAvailableSections(fetchedSections);
+        }
+      } catch (err) {
+        console.error("Failed to fetch sections:", err);
+        if (isMounted) setAvailableSections([]);
+      } finally {
+        if (isMounted) setLoadingSections(false);
+      }
+    };
+
+    fetchSections();
+    return () => { isMounted = false; };
+  }, [form.department, sectionsCache]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -310,7 +356,7 @@ export default function UserManagement() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium mb-1.5 flex items-center gap-1"><Building2 className="h-3 w-3" /> Department <span className="text-destructive">*</span></label>
-                    <select value={form.department} onChange={e => set("department", e.target.value as Department)} className="input-field">
+                    <select value={form.department} onChange={handleDepartmentChange} className="input-field">
                       {DEPARTMENTS.map(d => (
                         <option key={d} value={d}>{DEPT_LABELS[d]}</option>
                       ))}
@@ -318,7 +364,24 @@ export default function UserManagement() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium mb-1.5 flex items-center gap-1"><Layers className="h-3 w-3" /> Section</label>
-                    <input value={form.section} onChange={e => set("section", e.target.value)} className="input-field" placeholder="e.g. Frontend, Payroll" />
+                    <div className="relative">
+                      <select
+                        value={form.section}
+                        onChange={e => set("section", e.target.value)}
+                        className="input-field"
+                        disabled={loadingSections || !form.department || availableSections.length === 0}
+                      >
+                        <option value="">
+                          {loadingSections ? "Loading roles..." : availableSections.length === 0 ? "No roles available" : "Select Section"}
+                        </option>
+                        {availableSections.map(s => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                      {loadingSections && (
+                        <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                    </div>
                   </div>
                 </div>
 
