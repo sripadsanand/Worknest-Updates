@@ -93,6 +93,7 @@ interface UserState {
   id: number | null;
   seniority: Seniority | null;
   department: Department | null;
+  section: string | null;
 }
 
 interface UserContextType {
@@ -203,6 +204,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       id: null,
       seniority: null,
       department: null,
+      section: null,
     })
   );
 
@@ -330,6 +332,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         id: apiUser.id,
         seniority: apiUser.seniority,
         department: apiUser.department,
+        section: apiUser.section,
       });
       return { success: true };
     } catch (err: unknown) {
@@ -343,7 +346,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
-    setUser({ isAuthenticated: false, role: null, djangoRole: null, username: null, email: null, id: null, seniority: null, department: null });
+    setUser({ isAuthenticated: false, role: null, djangoRole: null, username: null, email: null, id: null, seniority: null, department: null, section: null });
   };
 
   // ── Announcement CRUD ─────────────────────────────────────────────────────
@@ -436,6 +439,15 @@ export function UserProvider({ children }: { children: ReactNode }) {
       }
       await api.patch(`/users/${id}/`, payload);
       fetchEmployees();
+      
+      // OPTION A (REAL-TIME UPDATE): Update global context if the user edited themselves
+      if (id === user.id) {
+         setUser(prev => ({
+           ...prev,
+           department: payload.department as Department || prev.department,
+           section: payload.section !== undefined ? payload.section : prev.section
+         }));
+      }
     } catch (err: unknown) {
       const data = (err as { response?: { data?: Record<string, string[]> } })?.response?.data;
       const messages = data ? Object.values(data).flat().join(" ") : "Failed to update user.";

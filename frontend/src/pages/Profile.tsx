@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from "react";
-import { Camera, Mail, Phone, User as UserIcon, Shield, FileText, Loader2, Check, Briefcase, Award, Hash } from "lucide-react";
+import { Camera, Mail, Phone, User as UserIcon, Shield, FileText, Loader2, Check, Briefcase, Award, Hash, Layers } from "lucide-react";
 import { useUser, ApiUser } from "@/context/UserContext";
 import api from "@/services/api";
 
 export default function Profile() {
-  const { user } = useUser();
-  const [profile, setProfile] = useState<ApiUser | null>(null);
+  const { user: authUser } = useUser();
+  const [user, setUser] = useState<ApiUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -27,14 +27,24 @@ export default function Profile() {
         const res = await api.get("/profile/");
         console.log("FULL USER RESPONSE:", res.data);
 
-        // Map department robustly handling string, null, or potential nested objects
+        // Normalize department
         let dept = res.data.department || res.data.departmentName || res.data.dept || "";
         if (dept && typeof dept === "object") {
           dept = dept.name || dept.id || "";
         }
+        
+        // Normalize section
+        let sec = res.data.section || res.data.role || "";
+        if (sec && typeof sec === "object") {
+          sec = sec.name || sec.id || "";
+        }
 
-        const mappedData = { ...res.data, department: dept };
-        setProfile(mappedData);
+        const mappedData = { 
+          ...res.data, 
+          department: typeof dept === "string" ? dept.trim() : "",
+          section: typeof sec === "string" ? sec.trim() : ""
+        };
+        setUser(mappedData);
         setFormData({
           first_name: res.data.first_name || "",
           last_name: res.data.last_name || "",
@@ -90,7 +100,19 @@ export default function Profile() {
           "Content-Type": "multipart/form-data",
         },
       });
-      setProfile(res.data);
+      setUser(res.data);
+      // Wait to re-fetch to ensure all fields are normalized
+      const freshRes = await api.get("/profile/");
+      let newDept = freshRes.data.department || "";
+      if (newDept && typeof newDept === "object") newDept = newDept.name || newDept.id || "";
+      let newSec = freshRes.data.section || "";
+      if (newSec && typeof newSec === "object") newSec = newSec.name || newSec.id || "";
+      setUser({
+        ...freshRes.data,
+        department: typeof newDept === "string" ? newDept.trim() : "",
+        section: typeof newSec === "string" ? newSec.trim() : ""
+      });
+      
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
@@ -101,7 +123,7 @@ export default function Profile() {
     }
   };
 
-  if (loading || !profile) {
+  if (loading || !user) {
     return (
       <div className="flex items-center justify-center h-full">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -109,7 +131,7 @@ export default function Profile() {
     );
   }
 
-  console.log("USER DATA:", user);
+  console.log("AUTH USER DATA:", authUser);
 
   return (
     <div className="max-w-2xl mx-auto space-y-8 animate-fade-in pb-12">
@@ -133,7 +155,7 @@ export default function Profile() {
                   <img src={imagePreview} alt="Profile" className="h-full w-full object-cover" />
                 ) : (
                   <div className="h-full w-full bg-primary/10 flex items-center justify-center text-3xl font-bold text-primary">
-                    {profile.username[0].toUpperCase()}
+                    {user.username ? user.username[0].toUpperCase() : "U"}
                   </div>
                 )}
                 {/* Upload Overlay */}
@@ -155,10 +177,10 @@ export default function Profile() {
               />
             </div>
             <div className="pb-3">
-              <h3 className="text-xl font-display font-bold">{profile.first_name} {profile.last_name || profile.username}</h3>
+              <h3 className="text-xl font-display font-bold">{user.first_name || user.username} {user.last_name}</h3>
               <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
                 <Shield className="h-3.5 w-3.5" />
-                <span className="capitalize">{profile.role} Access</span>
+                <span className="capitalize">{user.role} Access</span>
               </div>
             </div>
           </div>
@@ -197,7 +219,7 @@ export default function Profile() {
               </label>
               <input
                 type="email"
-                value={profile.email}
+                value={user.email}
                 disabled
                 className="input-field opacity-60 cursor-not-allowed bg-secondary/50"
               />
@@ -219,43 +241,54 @@ export default function Profile() {
             </div>
 
             {/* Additional Details */}
-            <div className="grid sm:grid-cols-3 gap-5">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <Award className="h-4 w-4 text-muted-foreground" /> Seniority
-                </label>
-                <input
-                  type="text"
-                  value={profile.seniority || "Junior"}
-                  disabled
-                  className="input-field opacity-60 cursor-not-allowed bg-secondary/50"
-                />
+            <div className="grid sm:grid-cols-2 gap-5">
+              <div className="space-y-1.5 flex flex-col items-start bg-secondary/30 p-4 rounded-xl border border-border">
+                  <label className="text-sm font-bold flex items-center gap-2 mb-1.5 text-foreground">
+                    <Briefcase className="h-4 w-4 text-primary" /> Role Assignment
+                  </label>
+                  {user.department ? (
+                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                      <span className="px-3 py-1 rounded-full text-xs font-semibold border bg-primary/10 text-primary border-primary/20">
+                        {user.department}
+                      </span>
+                      {user.section && (
+                        <>
+                          <span className="text-muted-foreground font-medium">→</span>
+                          <span className="px-3 py-1 rounded-full text-xs font-semibold border bg-foreground/5 flex items-center gap-1.5 shadow-sm text-foreground">
+                            <Layers className="h-3.5 w-3.5 opacity-70" />
+                            {user.section}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground font-medium px-2 py-1 bg-secondary rounded-md border border-border">Not Assigned</span>
+                  )}
               </div>
-              <div className="space-y-1.5">
+
+              <div className="space-y-4">
+                <div className="space-y-1.5">
                   <label className="text-sm font-medium flex items-center gap-2">
-                    <Briefcase className="h-4 w-4 text-muted-foreground" /> Department
+                    <Award className="h-4 w-4 text-muted-foreground" /> Seniority
                   </label>
                   <input
                     type="text"
-                    value={
-                      profile.department && typeof profile.department === "string" && profile.department.trim() !== ""
-                        ? profile.department
-                        : "Not Assigned"
-                    }
+                    value={user.seniority || "Junior"}
                     disabled
-                    className="input-field opacity-60 cursor-not-allowed bg-secondary/50"
+                    className="input-field h-9 opacity-60 cursor-not-allowed bg-secondary/50"
                   />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <Hash className="h-4 w-4 text-muted-foreground" /> User ID
-                </label>
-                <input
-                  type="text"
-                  value={profile.id ? `WK-${profile.id.toString().padStart(4, '0')}` : "Not Assigned"}
-                  disabled
-                  className="input-field opacity-60 cursor-not-allowed bg-secondary/50"
-                />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium flex items-center gap-2">
+                    <Hash className="h-4 w-4 text-muted-foreground" /> User ID
+                  </label>
+                  <input
+                    type="text"
+                    value={user.id ? `WK-${user.id.toString().padStart(4, '0')}` : "Not Assigned"}
+                    disabled
+                    className="input-field h-9 opacity-60 cursor-not-allowed bg-secondary/50"
+                  />
+                </div>
               </div>
             </div>
 
