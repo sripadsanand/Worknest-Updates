@@ -22,6 +22,7 @@ export interface ApiUser {
   profile_image: string | null;
   phone: string;
   bio: string;
+  manager?: ApiUser | null;
 }
 
 /** Frontend Task shape (matches backend TaskSerializer) */
@@ -34,6 +35,8 @@ export interface Task {
   dueDate: string | null;
   created_at: string;
   assigned_to: ApiUser | null;
+  assigned_to_department?: Department | null;
+  assigned_users?: ApiUser[];
   assigned_by: ApiUser | null;
 }
 
@@ -80,6 +83,7 @@ export interface MockEmployee {
   section: string;
   joinDate: string;
   djangoRole?: string;
+  manager?: ApiUser | null;
 }
 
 // ─── Context shape ─────────────────────────────────────────────────────────────
@@ -94,6 +98,7 @@ interface UserState {
   seniority: Seniority | null;
   department: Department | null;
   section: string | null;
+  manager?: ApiUser | null;
 }
 
 interface UserContextType {
@@ -117,9 +122,9 @@ interface UserContextType {
   // Tasks
   tasks: Task[];
   loadingTasks: boolean;
-  addTask: (t: { title: string; description: string; priority: string; dueDate: string; assigned_to_id?: number }) => Promise<void>;
+  addTask: (t: { title: string; description: string; priority: string; dueDate: string; assigned_to_id?: number | null; assigned_to_department?: string | null }) => Promise<void>;
   deleteTask: (id: number) => Promise<void>;
-  updateTask: (id: number, updates: Partial<{ status: string; priority: string; title: string; description: string; dueDate: string; assigned_to_id: number | null }>) => Promise<void>;
+  updateTask: (id: number, updates: Partial<{ status: string; priority: string; title: string; description: string; dueDate: string; assigned_to_id: number | null; assigned_to_department: string | null }>) => Promise<void>;
   refreshTasks: (filter?: string) => void;
 
   // Employees
@@ -165,6 +170,7 @@ function mapApiUserToEmployee(u: ApiUser): MockEmployee {
     seniority: u.seniority || "Junior",
     section: u.section || "",
     joinDate: "",
+    manager: u.manager,
   };
 }
 
@@ -205,6 +211,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       seniority: null,
       department: null,
       section: null,
+      manager: null,
     })
   );
 
@@ -333,6 +340,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         seniority: apiUser.seniority,
         department: apiUser.department,
         section: apiUser.section,
+        manager: apiUser.manager,
       });
       return { success: true };
     } catch (err: unknown) {
@@ -346,7 +354,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
-    setUser({ isAuthenticated: false, role: null, djangoRole: null, username: null, email: null, id: null, seniority: null, department: null, section: null });
+    setUser({ isAuthenticated: false, role: null, djangoRole: null, username: null, email: null, id: null, seniority: null, department: null, section: null, manager: null });
   };
 
   // ── Announcement CRUD ─────────────────────────────────────────────────────
@@ -367,7 +375,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   };
 
   // ── Task CRUD ─────────────────────────────────────────────────────────────
-  const addTask = async (t: { title: string; description: string; priority: string; dueDate: string; assigned_to_id?: number }) => {
+  const addTask = async (t: { title: string; description: string; priority: string; dueDate: string; assigned_to_id?: number | null; assigned_to_department?: string | null }) => {
     const { dueDate, ...rest } = t;
     // ✅ CRITICAL FIX: send 'dueDate' (camelCase) to match TaskSerializer field name.
     // Also convert YYYY-MM-DD to noon local ISO to prevent UTC midnight off-by-one day in IST.
@@ -381,7 +389,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setTasks(prev => prev.filter(t => t.id !== id));
   };
 
-  const updateTask = async (id: number, updates: Partial<{ status: string; priority: string; title: string; description: string; dueDate: string; assigned_to_id: number | null }>) => {
+  const updateTask = async (id: number, updates: Partial<{ status: string; priority: string; title: string; description: string; dueDate: string; assigned_to_id: number | null; assigned_to_department: string | null }>) => {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, ...updates } as Task : t));
     try {
       const { dueDate, ...rest } = updates;

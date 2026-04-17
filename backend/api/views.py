@@ -5,11 +5,14 @@ from rest_framework import viewsets, permissions, status, generics
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 
 from .models import User, Task, Announcement, Message, ChatGroup
 from .serializers import (
     UserSerializer,
     UserProfileSerializer,
+    UserMinimalSerializer,
     TaskSerializer,
     AnnouncementSerializer,
     MessageSerializer,
@@ -82,6 +85,19 @@ class DepartmentSectionsView(APIView):
         return Response({"sections": sections})
 
 
+class DepartmentUsersView(APIView):
+    """
+    Returns users associated with a specific department natively.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, department):
+        from .models import User
+        users = User.objects.filter(department__iexact=department)
+        serializer = UserMinimalSerializer(users, many=True)
+        return Response({"users": serializer.data})
+
+
 # -----------------------------------------------------------------
 # Users
 # -----------------------------------------------------------------
@@ -90,9 +106,77 @@ class UserViewSet(viewsets.ModelViewSet):
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
 
+    def _reassign_department(self, department):
+        """Re-evaluates and fixes the manager assignments for an entire department."""
+        if not department:
+            return
+            
+        manager_sections = {
+            "HR": ["HR Manager"],
+            "IT": ["Tech Lead", "Tech Lead / Manager"],
+            "FINANCE": ["Finance Manager"]
+        }
+        
+        manager = User.objects.filter(
+            department=department,
+            section__in=manager_sections.get(department, [])
+        ).order_by('id').first()
 
-from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+        if not manager:
+            manager = User.objects.filter(
+                department=department,
+                role__in=[User.Roles.MANAGER, User.Roles.ADMIN]
+            ).order_by('-seniority', 'id').first()
+
+        users_in_dept = User.objects.filter(department=department)
+        for u in users_in_dept:
+            is_acting_manager = (u.section in manager_sections.get(department, []))
+            assigned_manager_id = None
+            if u == manager or u.role in (User.Roles.MANAGER, User.Roles.ADMIN) or is_acting_manager:
+                if u.manager is not None:
+                    u.manager = None
+                    u.save(update_fields=['manager'])
+            else:
+                if u.manager != manager:
+                    u.manager = manager
+                    u.save(update_fields=['manager'])
+                assigned_manager_id = manager.id if manager else None
+                if not manager:
+                    print("WARNING: No manager found for this department")
+
+            print({
+                "department": u.department,
+                "section": u.section,
+                "assignedManagerId": assigned_manager_id
+            })
+
+    def perform_create(self, serializer):
+        user = serializer.save()
+        self._reassign_department(user.department)
+
+    def perform_update(self, serializer):
+        old_department = serializer.instance.department
+        user = serializer.save()
+        departments_to_update = {user.department}
+        if old_department and old_department != user.department:
+            departments_to_update.add(old_department)
+        for dept in departments_to_update:
+            self._reassign_department(dept)
+
+    def perform_destroy(self, instance):
+        dept = instance.department
+        super().perform_destroy(instance)
+        self._reassign_department(dept)
+
+    @action(detail=True, methods=['get'])
+    def team(self, request, pk=None):
+        """Retrieve all explicit subordinates under this specific user."""
+        user = self.get_object()
+        subordinates = user.subordinates.all().order_by('first_name', 'username')
+        serializer = UserMinimalSerializer(subordinates, many=True)
+        return Response({"team": serializer.data})
+
+
 
 # -----------------------------------------------------------------
 # Tasks — role-filtered queryset, auto-set assigned_by
@@ -110,10 +194,14 @@ class TaskViewSet(viewsets.ModelViewSet):
             qs = Task.objects.filter(
                 Q(assigned_by=user) |
                 Q(assigned_to=user) |
+                Q(assigned_users=user) |
                 Q(assigned_to__role="Employee")
             ).distinct()
         else:
-            qs = Task.objects.filter(assigned_to=user)
+            qs = Task.objects.filter(
+                Q(assigned_to=user) |
+                Q(assigned_users=user)
+            ).distinct()
 
         filter_param = self.request.query_params.get("filter", None)
         if filter_param:
@@ -159,7 +247,11 @@ class TaskViewSet(viewsets.ModelViewSet):
         assigned_to_user = serializer.validated_data.get('assigned_to')
         if assigned_to_user or self.request.data.get('assigned_to_id'):
             self._validate_assignment(assigned_to_user)
-        serializer.save(assigned_by=self.request.user)
+        
+        dept = serializer.validated_data.get('assigned_to_department')
+        task = serializer.save(assigned_by=self.request.user)
+        if dept:
+            task.assigned_users.set(User.objects.filter(department__iexact=dept))
 
     def perform_update(self, serializer):
         user = self.request.user
@@ -169,7 +261,14 @@ class TaskViewSet(viewsets.ModelViewSet):
                 raise PermissionDenied("Employees can only update task status.")
         if 'assigned_to' in serializer.validated_data:
             self._validate_assignment(serializer.validated_data.get('assigned_to'))
-        serializer.save()
+        
+        dept = serializer.validated_data.get('assigned_to_department')
+        task = serializer.save()
+        if 'assigned_to_department' in serializer.validated_data:
+            if dept:
+                task.assigned_users.set(User.objects.filter(department__iexact=dept))
+            else:
+                task.assigned_users.clear()
 
     @action(detail=True, methods=['patch'])
     def assign(self, request, pk=None):

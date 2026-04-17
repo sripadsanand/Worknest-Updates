@@ -12,18 +12,20 @@ from .models import User, Task, Announcement, Message, ChatGroup
 class UserMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "username", "email", "role", "seniority", "department", "avatar"]
+        fields = ["id", "username", "email", "role", "seniority", "department", "avatar", "manager"]
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    manager = UserMinimalSerializer(read_only=True)
+
     class Meta:
         model = User
         fields = [
             "id", "username", "first_name", "last_name", "email",
             "role", "seniority", "section", "department",
-            "avatar", "profile_image", "phone", "bio",
+            "avatar", "profile_image", "phone", "bio", "manager"
         ]
-        read_only_fields = ["id", "username", "email", "role"]
+        read_only_fields = ["id", "username", "email", "role", "manager"]
 
 
 # -------------------------------------------------------------------
@@ -111,6 +113,8 @@ class TaskSerializer(serializers.ModelSerializer):
         source="assigned_to", queryset=User.objects.all(),
         write_only=True, required=False, allow_null=True,
     )
+    assigned_to_department = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    assigned_users = UserMinimalSerializer(many=True, read_only=True)
     dueDate = serializers.DateField(source="due_date", required=False, allow_null=True)
 
     class Meta:
@@ -118,9 +122,10 @@ class TaskSerializer(serializers.ModelSerializer):
         fields = [
             "id", "title", "description", "status", "priority",
             "dueDate", "created_at", "assigned_to", "assigned_to_id",
+            "assigned_to_department", "assigned_users",
             "assigned_by", "created_by",
         ]
-        read_only_fields = ["id", "created_at", "assigned_to", "assigned_by", "created_by"]
+        read_only_fields = ["id", "created_at", "assigned_to", "assigned_users", "assigned_by", "created_by"]
 
     def validate_dueDate(self, value):
         # Reject empty strings — treat as no date

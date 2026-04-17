@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Camera, Mail, Phone, User as UserIcon, Shield, FileText, Loader2, Check, Briefcase, Award, Hash, Layers } from "lucide-react";
+import { Camera, Mail, Phone, User as UserIcon, Shield, FileText, Loader2, Check, Briefcase, Award, Hash, Layers, Users } from "lucide-react";
 import { useUser, ApiUser } from "@/context/UserContext";
 import api from "@/services/api";
 
@@ -9,6 +9,7 @@ export default function Profile() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [team, setTeam] = useState<ApiUser[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form state
@@ -54,6 +55,16 @@ export default function Profile() {
         if (res.data.profile_image) {
           setImagePreview(res.data.profile_image);
         }
+
+        if (res.data.role === "Manager" || res.data.role === "Admin") {
+          try {
+            const teamRes = await api.get(`/users/${res.data.id}/team/`);
+            setTeam(teamRes.data.team || []);
+          } catch (e) {
+            console.error("Failed to fetch team", e);
+          }
+        }
+
       } catch (err) {
         console.error("Failed to fetch profile", err);
       } finally {
@@ -264,6 +275,13 @@ export default function Profile() {
                   ) : (
                     <span className="text-sm text-muted-foreground font-medium px-2 py-1 bg-secondary rounded-md border border-border">Not Assigned</span>
                   )}
+                  {user.manager && (
+                    <div className="flex items-center gap-1.5 mt-3 bg-secondary px-3 py-1.5 rounded-lg border border-border w-fit shadow-sm">
+                      <UserIcon className="h-3.5 w-3.5 text-muted-foreground opacity-80" />
+                      <span className="text-xs font-semibold text-muted-foreground mr-1">Reports To:</span>
+                      <span className="text-xs font-bold px-2 py-0.5 bg-foreground/5 rounded-md border border-foreground/10">{user.manager.username}</span>
+                    </div>
+                  )}
               </div>
 
               <div className="space-y-4">
@@ -324,6 +342,44 @@ export default function Profile() {
           </div>
         </form>
       </div>
+
+      {(user.role === "Manager" || user.role === "Admin") && (
+        <div className="glass-card overflow-hidden mt-6 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+            <div className="p-8">
+                <h3 className="font-display text-xl font-bold flex items-center gap-2 mb-1">
+                    <Users className="h-5 w-5 text-primary" /> 
+                    Team Members <span className="text-base text-muted-foreground bg-secondary px-2 py-0.5 rounded-full border border-border">({team.length})</span>
+                </h3>
+                <p className="text-xs text-muted-foreground mb-6">Users directly reporting to you in the organization mapping.</p>
+                {team.length > 0 ? (
+                    <ul className="space-y-3">
+                        {team.map(member => (
+                            <li key={member.id} className="group flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-secondary/30 border border-border hover:border-primary/30 transition-colors">
+                                <div className="flex items-center gap-3">
+                                    <div className="h-10 w-10 flex-shrink-0 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold border border-primary/20">
+                                        {member.first_name ? member.first_name[0].toUpperCase() : member.username[0].toUpperCase()}
+                                    </div>
+                                    <div>
+                                        <p className="font-semibold text-sm">{member.first_name || member.username} {member.last_name}</p>
+                                        <p className="text-xs text-muted-foreground">{member.email}</p>
+                                    </div>
+                                </div>
+                                <div className="flex sm:flex-col items-center sm:items-end gap-2 sm:gap-1">
+                                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary border border-primary/20 shadow-sm">{member.department}</span>
+                                    <span className="text-[11px] font-medium text-foreground bg-foreground/5 px-2 py-0.5 rounded-md border border-foreground/10">{member.section || member.role}</span>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <div className="p-8 text-center border-2 border-dashed border-border rounded-xl bg-secondary/20">
+                        <p className="text-sm font-semibold text-foreground">No team members found.</p>
+                        <p className="text-xs text-muted-foreground mt-1">When users assign to your department as an Employee, they will securely map here.</p>
+                    </div>
+                )}
+            </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useUser, Task } from "@/context/UserContext";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Trash2, GripVertical, X, Calendar, Loader2, Filter, AlertCircle } from "lucide-react";
+import { Plus, Trash2, GripVertical, X, Calendar, Loader2, Filter, AlertCircle, Building2, Users } from "lucide-react";
 
 const COLUMNS: { key: Task["status"]; title: string; dotColor: string }[] = [
   { key: "todo", title: "To Do", dotColor: "bg-muted-foreground" },
@@ -50,7 +50,8 @@ export default function Tasks() {
   const [newPriority, setNewPriority] = useState<"high" | "medium" | "low">("medium");
   const [newDueDate, setNewDueDate] = useState(todayStr());
   const [newDescription, setNewDescription] = useState("");
-  const [newAssignedTo, setNewAssignedTo] = useState<number | "">("");
+  const [newAssignment, setNewAssignment] = useState<string>("");
+  const [overrideUser, setOverrideUser] = useState<number | "">("");
   const [saving, setSaving] = useState(false);
   const [dateError, setDateError] = useState<string | null>(null);
 
@@ -75,7 +76,8 @@ export default function Tasks() {
     setNewPriority("medium");
     setNewDueDate(todayStr());  // always reset to today
     setNewDescription("");
-    setNewAssignedTo("");
+    setNewAssignment("");
+    setOverrideUser("");
     setDateError(null);
     setShowModal(true);
   };
@@ -100,12 +102,16 @@ export default function Tasks() {
 
     setSaving(true);
     try {
+      const dept = newAssignment.startsWith("dept:") ? newAssignment.split(":")[1] : null;
+      const userId = newAssignment.startsWith("user:") ? Number(newAssignment.split(":")[1]) : (overrideUser ? Number(overrideUser) : undefined);
+
       await addTask({
         title: newTitle.trim(),
         description: newDescription.trim(),
         priority: newPriority,
         dueDate: newDueDate,   // pass raw YYYY-MM-DD; UserContext converts it to noon-ISO
-        assigned_to_id: newAssignedTo ? Number(newAssignedTo) : undefined,
+        assigned_to_id: userId,
+        assigned_to_department: dept,
       });
       setShowModal(false);
     } catch (err: unknown) {
@@ -131,9 +137,14 @@ export default function Tasks() {
     }
   };
 
-  const handleAssign = async (taskId: number, newAssigneeId: number | "") => {
+  const handleAssign = async (taskId: number, mixedVal: string) => {
     try {
-      await updateTask(taskId, { assigned_to_id: newAssigneeId === "" ? null : newAssigneeId });
+      const dept = mixedVal.startsWith("dept:") ? mixedVal.split(":")[1] : null;
+      const userId = mixedVal.startsWith("user:") ? Number(mixedVal.split(":")[1]) : null;
+      await updateTask(taskId, {
+        assigned_to_id: userId,
+        assigned_to_department: dept,
+      });
     } catch {
       alert("Failed to re-assign task.");
     }
@@ -306,33 +317,54 @@ export default function Tasks() {
                     )}
                     <div className="flex flex-col gap-2 mt-3 ml-1">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col gap-1.5 items-start">
                           {canCreate ? (
                             <select
-                              value={task.assigned_to?.id || ""}
-                              onChange={(e) => handleAssign(task.id, e.target.value ? Number(e.target.value) : "")}
-                              className="text-[10px] bg-secondary border border-border rounded px-1.5 py-0.5 w-24 text-muted-foreground hover:bg-secondary/80 outline-none"
+                              value={task.assigned_to_department ? `dept:${task.assigned_to_department}` : (task.assigned_to?.id ? `user:${task.assigned_to.id}` : "")}
+                              onChange={(e) => handleAssign(task.id, e.target.value)}
+                              className="text-[10px] bg-secondary border border-border rounded px-1.5 py-0.5 max-w-[140px] text-muted-foreground hover:bg-secondary/80 outline-none"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <option value="">Unassigned</option>
-                              {assignableEmployees.map(e => (
-                                <option key={e.id} value={e.id}>{e.name} ({e.djangoRole})</option>
-                              ))}
+                              <optgroup label="--- Departments ---">
+                                <option value="dept:HR">HR Department</option>
+                                <option value="dept:IT">IT Department</option>
+                                <option value="dept:FINANCE">Finance Department</option>
+                              </optgroup>
+                              <optgroup label="--- Users ---">
+                                {assignableEmployees.map(e => (
+                                  <option key={e.id} value={`user:${e.id}`}>{e.name} ({e.djangoRole})</option>
+                                ))}
+                              </optgroup>
                             </select>
-                          ) : (
-                            <div className="flex gap-1.5 items-center">
-                              {task.assigned_to ? (
-                                <div className="h-5 w-5 rounded-full bg-primary/10 flex items-center justify-center text-[9px] font-bold text-primary" title={`Assigned to ${task.assigned_to.username}`}>
+                          ) : null}
+
+                          <div className="flex gap-2 items-center flex-wrap mt-0.5">
+                            {task.assigned_to_department && (
+                              <div className="flex items-center gap-1.5 border border-primary/20 bg-primary/5 px-2 py-0.5 rounded-md text-primary" title={`Assigned to ${task.assigned_to_department} Department`}>
+                                 <Users className="h-3 w-3" />
+                                 <span className="text-[10px] font-bold tracking-wide">{task.assigned_to_department} Dept</span>
+                                 {task.assigned_users && <span className="text-[9px] opacity-70">({task.assigned_users.length} users)</span>}
+                              </div>
+                            )}
+
+                            {task.assigned_to ? (
+                              <div className="flex items-center gap-1.5">
+                                <div className="h-4 w-4 rounded-full bg-foreground/10 flex items-center justify-center text-[8px] font-bold text-foreground" title={`Assigned to ${task.assigned_to.username}`}>
                                   {task.assigned_to.username[0].toUpperCase()}
                                 </div>
-                              ) : (
-                                <div className="h-5 w-5 rounded-full border border-dashed border-border flex items-center justify-center text-[9px]" title="Unassigned">?</div>
-                              )}
-                              <span className="text-[10px] text-muted-foreground">{task.assigned_to ? task.assigned_to.username : "Unassigned"}</span>
-                            </div>
-                          )}
+                                <span className="text-[10px] text-muted-foreground font-medium">{task.assigned_to.username} {task.assigned_to_department && "(Override)"}</span>
+                              </div>
+                            ) : task.assigned_to_department ? null : (
+                              <div className="flex items-center gap-1.5">
+                                <div className="h-4 w-4 rounded-full border border-dashed border-border flex items-center justify-center text-[8px]" title="Unassigned">?</div>
+                                <span className="text-[10px] text-muted-foreground">Unassigned</span>
+                              </div>
+                            )}
+                          </div>
+                          
                           {task.assigned_by && (
-                            <span title={`Created by: ${task.assigned_by.username}`} className="text-[10px] text-muted-foreground/50 hidden sm:inline-block ml-2">
+                            <span title={`Created by: ${task.assigned_by.username}`} className="text-[9px] text-muted-foreground/40 hidden sm:inline-block">
                               creator: {task.assigned_by.username}
                             </span>
                           )}
@@ -397,17 +429,39 @@ export default function Tasks() {
 
                 {canCreate && (
                   <div>
-                    <label className="block text-xs font-medium mb-1.5">Assign To</label>
+                    <label className="block text-xs font-medium mb-1.5 flex items-center gap-1.5"><Users className="h-3.5 w-3.5 text-muted-foreground" /> Assign To</label>
                     <select
-                      value={newAssignedTo}
-                      onChange={e => setNewAssignedTo(e.target.value === "" ? "" : Number(e.target.value))}
+                      value={newAssignment}
+                      onChange={e => {
+                         setNewAssignment(e.target.value);
+                         setOverrideUser("");
+                      }}
                       className="input-field appearance-none w-full bg-card"
                     >
                       <option value="">Unassigned</option>
-                      {assignableEmployees.map(e => (
-                        <option key={e.id} value={e.id}>{e.name} ({e.djangoRole})</option>
-                      ))}
+                      <optgroup label="--- Departments ---">
+                         <option value="dept:HR">HR Department</option>
+                         <option value="dept:IT">IT Department</option>
+                         <option value="dept:FINANCE">Finance Department</option>
+                      </optgroup>
+                      <optgroup label="--- Users ---">
+                         {assignableEmployees.map(e => (
+                           <option key={e.id} value={`user:${e.id}`}>👤 {e.name} ({e.djangoRole})</option>
+                         ))}
+                      </optgroup>
                     </select>
+
+                    {newAssignment.startsWith("dept:") && (
+                        <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="mt-3 pl-3 border-l-2 border-primary/30">
+                            <label className="block text-[11px] font-semibold mb-1 text-muted-foreground flex items-center gap-1">
+                                <AlertCircle className="h-3 w-3" /> Specific User Override (PRO Bonus)
+                            </label>
+                            <select value={overrideUser} onChange={e => setOverrideUser(e.target.value === "" ? "" : Number(e.target.value))} className="input-field py-1.5 text-xs bg-secondary/30">
+                                <option value="">No Override - Broadcast to entire department</option>
+                                {assignableEmployees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                            </select>
+                        </motion.div>
+                    )}
                   </div>
                 )}
 

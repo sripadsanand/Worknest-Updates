@@ -17,6 +17,7 @@ from .views import (
     AISuggestReplyView,
     AISummarizeView,
     DepartmentSectionsView,
+    DepartmentUsersView,
 )
 
 
@@ -53,6 +54,7 @@ urlpatterns = [
 
     # ── Utility ───────────────────────────────────────────────────────
     path('departments/<str:department>/sections/', DepartmentSectionsView.as_view(), name='department-sections'),
+    path('departments/<str:department>/users/', DepartmentUsersView.as_view(), name='department-users'),
 
     # ── Health check ──────────────────────────────────────────────────
     path('test/', test_api_endpoint, name='api-test'),

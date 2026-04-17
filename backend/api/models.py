@@ -26,6 +26,9 @@ class User(AbstractUser):
     profile_image = models.ImageField(upload_to='profiles/', null=True, blank=True)
     phone = models.CharField(max_length=20, blank=True, default="")
     bio = models.TextField(blank=True, default="")
+    manager = models.ForeignKey(
+        'self', on_delete=models.SET_NULL, null=True, blank=True, related_name='subordinates'
+    )
 
     def __str__(self):
         return f"{self.username} ({self.role})"
@@ -55,6 +58,14 @@ class Task(models.Model):
     assigned_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True, related_name="assigned_tasks",
+    )
+    assigned_to_department = models.CharField(
+        max_length=20, choices=settings.AUTH_USER_MODEL.__class__.Department.choices if False else [
+            ('HR', 'HR'), ('IT', 'IT'), ('FINANCE', 'Finance')
+        ], null=True, blank=True
+    )
+    assigned_users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL, related_name="department_tasks", blank=True
     )
 
     def __str__(self):
